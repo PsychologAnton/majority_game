@@ -37,7 +37,7 @@
   }
   .cell {
     width: 56px; height: 56px; background: #0f3460; border-radius: 6px;
-    cursor: pointer; transition: background 0.25s, transform 0.2s, box-shadow 0.3s;
+    cursor: pointer; transition: background 0.25s, transform 0.2s, box-shadow 0.3s, filter 0.3s;
     position: relative; display: flex; align-items: center; justify-content: center;
   }
   .cell:hover:not(.p1):not(.p2) { background: #1a4a7a; transform: scale(1.08); }
@@ -180,18 +180,13 @@ function simulateMove(b, r, c, player) {
   return { board: nb, flips: totalFlips };
 }
 
-/*
- * Place piece + animate cascade: dots → pause → flip, wave by wave.
- * Board is updated cell-by-cell in sync with the visual flip.
- * Returns total animation duration (ms) so callers can wait.
- */
 function applyMove(r, c, player) {
   board[r][c] = player;
   updateCellVisual(r, c, false);
+  updateAllBrightness();
 
   const opp = player===1?2:1;
 
-  /* Pre-calculate cascade waves on a temp copy */
   const waves = [];
   const tmp = board.map(row=>[...row]);
   let go = true;
@@ -211,25 +206,28 @@ function applyMove(r, c, player) {
     }
   }
 
-  const DOT_TIME   = 350;   /* ms — dots visible before flip  */
-  const FLIP_GAP   = 100;   /* ms — between individual flips  */
-  const WAVE_PAUSE = 150;   /* ms — gap between cascade waves */
+  const DOT_TIME   = 350;
+  const FLIP_GAP   = 100;
+  const WAVE_PAUSE = 150;
   let t = 0;
 
   waves.forEach((wave) => {
-    /* 1. show vulnerability dots */
     setTimeout(()=>{
-      wave.forEach(([fr,fc])=> getCell(fr,fc).classList.add('vulnerable'));
+      wave.forEach(([fr,fc])=>{
+        const cell = getCell(fr,fc);
+        cell.classList.add('vulnerable');
+        cell.style.filter = 'brightness(1)';
+      });
     }, t);
     t += DOT_TIME;
 
-    /* 2. flip cells one by one */
     wave.forEach(([fr,fc], i)=>{
       setTimeout(()=>{
         board[fr][fc] = player;
         const cell = getCell(fr,fc);
         cell.classList.remove('vulnerable');
         updateCellVisual(fr, fc, true);
+        updateAllBrightness();
         updateInfo();
       }, t + i * FLIP_GAP);
     });
@@ -272,11 +270,6 @@ function getEmptyCells(b) {
   return cells;
 }
 
-/*
- * Opening protection: while both players have ≤1 piece each,
- * the current player may NOT place adjacent to opponent’s pieces.
- * Covers move 2 (P2’s 1st) AND move 3 (P1’s 2nd).
- */
 function getLegalCells(b, player) {
   const empty = getEmptyCells(b);
   const opp = player===1?2:1;
@@ -462,6 +455,28 @@ function updateCellVisual(r,c,animate) {
   const cls = board[r][c]===1?' p1':board[r][c]===2?' p2':'';
   cell.className = 'cell' + cls;
   if (animate) { cell.classList.add('flip'); setTimeout(()=>cell.classList.remove('flip'),350); }
+}
+
+/*
+ * Brightness = f(friendly neighbors − enemy neighbors)
+ * diff clamped to [−1 .. 8]  →  brightness 0.40 .. 1.20
+ * Isolated piece (diff 0) ≈ 0.49 — noticeably dim = exposed.
+ * Well-protected piece (diff 5+) glows above normal.
+ * Adds smooth transition via CSS `transition: filter 0.3s`.
+ */
+function updateAllBrightness() {
+  for (let r=0; r<N; r++) for (let c=0; c<N; c++) {
+    const cell = getCell(r,c);
+    if (!cell) continue;
+    const player = board[r][c];
+    if (player === 0) { cell.style.filter = ''; continue; }
+    const opp = player===1?2:1;
+    const fn = countAround(board, r, c, player);
+    const en = countAround(board, r, c, opp);
+    const diff = Math.max(-1, Math.min(8, fn - en));
+    const k = (diff + 1) / 9;
+    cell.style.filter = 'brightness(' + (0.4 + k * 0.8).toFixed(2) + ')';
+  }
 }
 
 function updateInfo() {

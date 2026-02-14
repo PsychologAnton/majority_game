@@ -175,7 +175,6 @@ function simulateMove(b, r, c, player) {
 function applyMove(r, c, player) {
   board[r][c] = player;
   updateCellVisual(r, c, false);
-  // mark last move
   document.querySelectorAll('.last-move').forEach(el=>el.classList.remove('last-move'));
   getCell(r,c).classList.add('last-move');
 
@@ -238,71 +237,146 @@ function boardScore(b, player) {
   return my - opp;
 }
 
-function positionalWeight(r,c) {
-  const corner = (r===0||r===N-1) && (c===0||c===N-1);
-  const edge = r===0||r===N-1||c===0||c===N-1;
-  const nearCorner = ((r<=1||r>=N-2) && (c<=1||c>=N-2)) && !corner;
-  if (corner) return 4;
-  if (nearCorner) return -1;
-  if (edge) return 2;
-  return 1;
+/* How many of player's own pieces surround (r,c) */
+function friendlyAdjacent(b, r, c, player) {
+  return neighbors(r,c).filter(([rr,cc]) => b[rr][cc] === player).length;
 }
 
+/* 0 = corner, 1 = exact center — prefers central positions */
+function centerProximity(r, c) {
+  const cr = (N-1)/2, cc = (N-1)/2;
+  const maxDist = Math.sqrt(cr*cr + cc*cc);
+  const dist = Math.sqrt((r-cr)*(r-cr) + (c-cc)*(c-cc));
+  return 1 - dist / maxDist;
+}
+
+/* Cells with more neighbors are inherently more defensible (corner=3, edge=5, inner=8) */
+function neighborCount(r, c) {
+  return neighbors(r,c).length;
+}
+
+/*
+ * Stability: count "safe" pieces (friendly neighbors > enemy neighbors)
+ * minus "at-risk" pieces (enemy neighbors >= friendly, enemy > 0).
+ */
+function stabilityScore(b, player) {
+  const opp = player===1?2:1;
+  let safe = 0, risk = 0;
+  for (let r=0;r<N;r++) for (let c=0;c<N;c++) {
+    if (b[r][c] === player) {
+      const fn = countAround(b,r,c,player);
+      const en = countAround(b,r,c,opp);
+      if (fn > en) safe++;
+      else if (en > 0 && en >= fn) risk++;
+    }
+  }
+  return safe - risk * 2;
+}
+
+/* Composite board evaluation used by Medium & Hard AI */
+function evaluate(b, player) {
+  const opp = player===1?2:1;
+  const net = boardScore(b, player);
+  const myStab = stabilityScore(b, player);
+  const oppStab = stabilityScore(b, opp);
+  return net * 4 + (myStab - oppStab) * 1.5;
+}
+
+/* ---- Easy: mostly random, slight capture bonus ---- */
 function aiEasy() {
   const empty = getEmptyCells(board);
   if (!empty.length) return null;
-  // Random with slight preference for captures
   let best = [], bestScore = -Infinity;
   for (const [r,c] of empty) {
     const {flips} = simulateMove(board,r,c,2);
-    const score = flips + Math.random()*0.5;
+    const score = flips * 0.5 + Math.random() * 3;
     if (score > bestScore) { bestScore = score; best = [[r,c]]; }
-    else if (Math.abs(score-bestScore)<0.6) best.push([r,c]);
+    else if (Math.abs(score-bestScore) < 1.5) best.push([r,c]);
   }
   return best[Math.floor(Math.random()*best.length)];
 }
 
+/* ---- Medium: greedy — cohesion + center + captures + disruption ---- */
 function aiMedium() {
   const empty = getEmptyCells(board);
   if (!empty.length) return null;
   let best = null, bestScore = -Infinity;
+
+  const totalCells = N*N;
+  const filled = totalCells - empty.length;
+  const phase = filled / totalCells;
+
   for (const [r,c] of empty) {
     const sim = simulateMove(board,r,c,2);
     const flips = sim.flips;
-    const pos = positionalWeight(r,c);
-    // evaluate: flips + positional + net score
     const net = boardScore(sim.board, 2);
-    const score = flips*3 + pos*2 + net + Math.random()*0.3;
+    const adj = friendlyAdjacent(board, r, c, 2);
+    const center = centerProximity(r, c);
+    const nearOpp = friendlyAdjacent(board, r, c, 1);
+
+    let score = net * 2 + flips * 2.5;
+    score += adj * (phase < 0.3 ? 4 : 2);
+    score += center * (phase < 0.4 ? 3 : 1);
+    score += nearOpp * 1;
+    score += Math.random() * 0.5;
+
     if (score > bestScore) { bestScore = score; best = [r,c]; }
   }
   return best;
 }
 
+/* ---- Hard: minimax (depth 1) with smart eval & prioritised sampling ---- */
 function aiHard() {
   const empty = getEmptyCells(board);
   if (!empty.length) return null;
   let best = null, bestVal = -Infinity;
 
+  const totalCells = N*N;
+  const filled = totalCells - empty.length;
+  const phase = filled / totalCells;
+
   for (const [r,c] of empty) {
     const sim = simulateMove(board,r,c,2);
-    // Opponent's best response
-    let worstReply = Infinity;
+    const myEval = evaluate(sim.board, 2);
+
+    /* Minimax: consider opponent's best reply */
     const emptyAfter = getEmptyCells(sim.board);
-    if (emptyAfter.length === 0) {
-      worstReply = boardScore(sim.board, 2);
-    } else {
-      // Sample opponent moves (limit for performance)
-      const sample = emptyAfter.length > 20
-        ? emptyAfter.sort(()=>Math.random()-0.5).slice(0,20)
-        : emptyAfter;
-      for (const [rr,cc] of sample) {
-        const reply = simulateMove(sim.board,rr,cc,1);
-        const sc = boardScore(reply.board, 2);
-        if (sc < worstReply) worstReply = sc;
+    let worstAfterReply = myEval;
+
+    if (emptyAfter.length > 0) {
+      /* Rank opponent moves by threat: near our pieces first */
+      const ranked = emptyAfter.map(([rr,cc]) => {
+        const threatToUs = friendlyAdjacent(sim.board, rr, cc, 2);
+        const oppCoh    = friendlyAdjacent(sim.board, rr, cc, 1);
+        return { r:rr, c:cc, priority: threatToUs * 2 + oppCoh + centerProximity(rr,cc) };
+      }).sort((a,b) => b.priority - a.priority);
+
+      const sampleSize = Math.min(ranked.length, phase < 0.3 ? 15 : 25);
+      const sample = ranked.slice(0, sampleSize);
+
+      worstAfterReply = Infinity;
+      for (const {r:rr, c:cc} of sample) {
+        const reply = simulateMove(sim.board, rr, cc, 1);
+        const sc = evaluate(reply.board, 2);
+        if (sc < worstAfterReply) worstAfterReply = sc;
       }
     }
-    const pos = positionalWeight(r,c);
-    const val = worstReply + pos*1.5 + sim.flips*0.5 + Math.random()*0.2;
+
+    const adj    = friendlyAdjacent(board, r, c, 2);
+    const center = centerProximity(r, c);
+    const nCount = neighborCount(r, c);
+    const defenseBonus = nCount / 8;
+
+    const centerW = phase < 0.4 ? 5 : 1.5;
+    const cohW    = phase < 0.3 ? 4 : 1.5;
+
+    const val = worstAfterReply * 0.6 + myEval * 0.4
+              + center * centerW
+              + adj * cohW
+              + defenseBonus * 2
+              + sim.flips * 0.5
+              + Math.random() * 0.15;
+
     if (val > bestVal) { bestVal = val; best = [r,c]; }
   }
   return best;
@@ -330,7 +404,7 @@ function updateCellVisual(r,c,animate) {
   const cell = getCell(r,c);
   const cls = board[r][c]===1?' p1':board[r][c]===2?' p2':'';
   cell.className = 'cell' + cls;
-  if (cell.classList.contains('locked')) {} // re-add if needed
+  if (cell.classList.contains('locked')) {}
   if (animate) { cell.classList.add('flip'); setTimeout(()=>cell.classList.remove('flip'),350); }
 }
 

@@ -36,7 +36,7 @@
     box-shadow: 0 0 40px #0d1117aa;
   }
   .cell {
-    width: 56px; height: 56px; background: #0f3460; border-radius: 6px;
+    background: #0f3460; border-radius: 6px;
     cursor: pointer; transition: background 0.25s, transform 0.2s, box-shadow 0.3s, filter 0.3s;
     position: relative; display: flex; align-items: center; justify-content: center;
   }
@@ -119,11 +119,13 @@
 </div>
 
 <script>
-const SIZES = [6, 8, 10];
+const SIZES = [6, 8, 10, 16];
 const DIFF_NAMES = ['Лёгкий', 'Средний', 'Сильный'];
 let sizeIdx = 1, N = 8;
 let diffIdx = 1;
 let board = [], currentPlayer = 1, cascadeOn = true, gameOver = false, aiThinking = false;
+
+function cellSize() { return N <= 10 ? 56 : 32; }
 
 function toggleSize() { sizeIdx = (sizeIdx+1)%SIZES.length; N = SIZES[sizeIdx]; document.getElementById('sizeLabel').textContent = N+'×'+N; initGame(); }
 function toggleCascade() { cascadeOn = !cascadeOn; document.getElementById('cascLabel').textContent = cascadeOn ? 'ВКЛ' : 'ВЫКЛ'; }
@@ -137,11 +139,16 @@ function initGame() {
 
 function renderBoard() {
   const el = document.getElementById('board');
-  el.style.gridTemplateColumns = `repeat(${N}, 56px)`;
+  const sz = cellSize();
+  el.style.gridTemplateColumns = `repeat(${N}, ${sz}px)`;
+  el.style.gap = N <= 10 ? '3px' : '2px';
+  el.style.padding = N <= 10 ? '12px' : '8px';
   el.innerHTML = '';
   for (let r=0; r<N; r++) for (let c=0; c<N; c++) {
     const cell = document.createElement('div');
     cell.className = 'cell';
+    cell.style.width = sz+'px';
+    cell.style.height = sz+'px';
     cell.dataset.r = r; cell.dataset.c = c;
     cell.addEventListener('click', () => onCellClick(r,c));
     el.appendChild(cell);
@@ -207,7 +214,7 @@ function applyMove(r, c, player) {
   }
 
   const DOT_TIME   = 350;
-  const FLIP_GAP   = 100;
+  const FLIP_GAP   = N <= 10 ? 100 : 40;
   const WAVE_PAUSE = 150;
   let t = 0;
 
@@ -457,13 +464,6 @@ function updateCellVisual(r,c,animate) {
   if (animate) { cell.classList.add('flip'); setTimeout(()=>cell.classList.remove('flip'),350); }
 }
 
-/*
- * Brightness = f(friendly neighbors − enemy neighbors)
- * diff clamped to [−1 .. 8]  →  brightness 0.40 .. 1.20
- * Isolated piece (diff 0) ≈ 0.49 — noticeably dim = exposed.
- * Well-protected piece (diff 5+) glows above normal.
- * Adds smooth transition via CSS `transition: filter 0.3s`.
- */
 function updateAllBrightness() {
   for (let r=0; r<N; r++) for (let c=0; c<N; c++) {
     const cell = getCell(r,c);

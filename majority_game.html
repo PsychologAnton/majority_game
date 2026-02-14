@@ -43,10 +43,18 @@
   .cell:hover:not(.p1):not(.p2) { background: #1a4a7a; transform: scale(1.08); }
   .cell.p1 { background: #4fc3f7; box-shadow: 0 0 12px #4fc3f766; cursor: default; }
   .cell.p2 { background: #ef5350; box-shadow: 0 0 12px #ef535066; cursor: default; }
-  .cell.last-move::after {
+
+  .cell.vulnerable::after {
     content: ''; position: absolute; width: 14px; height: 14px;
-    border-radius: 50%; background: rgba(255,255,255,0.35);
+    border-radius: 50%; background: white;
+    box-shadow: 0 0 6px rgba(255,255,255,0.8);
+    animation: dotPulse 0.3s infinite alternate;
   }
+  @keyframes dotPulse {
+    from { transform: scale(0.7); opacity: 0.6; }
+    to   { transform: scale(1.1); opacity: 1; }
+  }
+
   .cell.flip { animation: flipCell 0.35s ease; }
   @keyframes flipCell {
     0%   { transform: scale(1); }
@@ -172,47 +180,82 @@ function simulateMove(b, r, c, player) {
   return { board: nb, flips: totalFlips };
 }
 
+/*
+ * Place piece + animate cascade: dots → pause → flip, wave by wave.
+ * Board is updated cell-by-cell in sync with the visual flip.
+ * Returns total animation duration (ms) so callers can wait.
+ */
 function applyMove(r, c, player) {
   board[r][c] = player;
   updateCellVisual(r, c, false);
-  document.querySelectorAll('.last-move').forEach(el=>el.classList.remove('last-move'));
-  getCell(r,c).classList.add('last-move');
 
   const opp = player===1?2:1;
-  let allFlips = [];
-  let flipped = true;
-  while (flipped) {
-    flipped = false;
-    let round = [];
+
+  /* Pre-calculate cascade waves on a temp copy */
+  const waves = [];
+  const tmp = board.map(row=>[...row]);
+  let go = true;
+  while (go) {
+    go = false;
+    const wave = [];
     for (let rr=0;rr<N;rr++) for (let cc=0;cc<N;cc++) {
-      if (board[rr][cc]===opp) {
-        if (countAround(board,rr,cc,player) > countAround(board,rr,cc,opp)) round.push([rr,cc]);
+      if (tmp[rr][cc]===opp) {
+        if (countAround(tmp,rr,cc,player) > countAround(tmp,rr,cc,opp))
+          wave.push([rr,cc]);
       }
     }
-    if (round.length>0) {
-      round.forEach(([fr,fc])=>{ board[fr][fc]=player; });
-      allFlips.push(...round);
-      flipped = cascadeOn;
+    if (wave.length) {
+      wave.forEach(([fr,fc])=>{ tmp[fr][fc]=player; });
+      waves.push(wave);
+      go = cascadeOn;
     }
   }
-  allFlips.forEach(([fr,fc],i) => {
-    setTimeout(()=>updateCellVisual(fr,fc,true), i*70);
+
+  const DOT_TIME   = 350;   /* ms — dots visible before flip  */
+  const FLIP_GAP   = 100;   /* ms — between individual flips  */
+  const WAVE_PAUSE = 150;   /* ms — gap between cascade waves */
+  let t = 0;
+
+  waves.forEach((wave) => {
+    /* 1. show vulnerability dots */
+    setTimeout(()=>{
+      wave.forEach(([fr,fc])=> getCell(fr,fc).classList.add('vulnerable'));
+    }, t);
+    t += DOT_TIME;
+
+    /* 2. flip cells one by one */
+    wave.forEach(([fr,fc], i)=>{
+      setTimeout(()=>{
+        board[fr][fc] = player;
+        const cell = getCell(fr,fc);
+        cell.classList.remove('vulnerable');
+        updateCellVisual(fr, fc, true);
+        updateInfo();
+      }, t + i * FLIP_GAP);
+    });
+    t += wave.length * FLIP_GAP + WAVE_PAUSE;
   });
-  return allFlips.length;
+
+  return t;
 }
 
 function onCellClick(r,c) {
   if (gameOver || aiThinking || currentPlayer!==1 || board[r][c]!==0) return;
   const legal = getLegalCells(board, 1);
   if (!legal.some(([lr,lc]) => lr===r && lc===c)) return;
-  applyMove(r,c,1);
-  currentPlayer = 2;
-  updateInfo();
-  if (checkEnd()) return;
-  aiThinking = true;
+
   lockBoard(true);
-  const delay = Math.max(300, 50 * N);
-  setTimeout(()=>{ aiMove(); }, delay);
+  const animTime = applyMove(r,c,1);
+
+  setTimeout(() => {
+    currentPlayer = 2;
+    updateInfo();
+    if (checkEnd()) { lockBoard(false); return; }
+    aiThinking = true;
+    updateInfo();
+    const delay = Math.max(300, 50 * N);
+    setTimeout(()=>{ aiMove(); }, delay);
+  }, animTime);
 }
 
 function lockBoard(lock) {
@@ -229,12 +272,20 @@ function getEmptyCells(b) {
   return cells;
 }
 
+/*
+ * Opening protection: while both players have ≤1 piece each,
+ * the current player may NOT place adjacent to opponent’s pieces.
+ * Covers move 2 (P2’s 1st) AND move 3 (P1’s 2nd).
+ */
 function getLegalCells(b, player) {
   const empty = getEmptyCells(b);
   const opp = player===1?2:1;
-  let myCount = 0;
-  for (let r=0;r<N;r++) for (let c=0;c<N;c++) if (b[r][c]===player) myCount++;
-  if (myCount === 0) {
+  let myCount = 0, oppCount = 0;
+  for (let r=0;r<N;r++) for (let c=0;c<N;c++) {
+    if (b[r][c]===player) myCount++;
+    if (b[r][c]===opp) oppCount++;
+  }
+  if (myCount <= 1 && oppCount <= 1 && (myCount + oppCount) > 0) {
     const filtered = empty.filter(([r,c]) =>
       neighbors(r,c).every(([rr,cc]) => b[rr][cc] !== opp)
     );
@@ -393,12 +444,15 @@ function aiMove() {
 
   if (!move) { aiThinking = false; lockBoard(false); checkEnd(); return; }
   const [r,c] = move;
-  applyMove(r,c,2);
-  currentPlayer = 1;
-  aiThinking = false;
-  lockBoard(false);
-  updateInfo();
-  checkEnd();
+  const animTime = applyMove(r,c,2);
+
+  setTimeout(() => {
+    currentPlayer = 1;
+    aiThinking = false;
+    lockBoard(false);
+    updateInfo();
+    checkEnd();
+  }, animTime);
 }
 
 // ===================== UI =====================
@@ -407,7 +461,6 @@ function updateCellVisual(r,c,animate) {
   const cell = getCell(r,c);
   const cls = board[r][c]===1?' p1':board[r][c]===2?' p2':'';
   cell.className = 'cell' + cls;
-  if (cell.classList.contains('locked')) {}
   if (animate) { cell.classList.add('flip'); setTimeout(()=>cell.classList.remove('flip'),350); }
 }
 
@@ -433,12 +486,9 @@ function checkEnd() {
   const totalPlaced = s1 + s2;
   let ended = false;
 
-  /* Wipeout: one side lost every piece (only after both have played) */
   if (totalPlaced >= 2 && (s1 === 0 || s2 === 0)) {
     ended = true;
   }
-
-  /* Board full */
   if (empty === 0) {
     ended = true;
   }

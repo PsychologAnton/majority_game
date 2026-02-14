@@ -37,13 +37,26 @@
   }
   .cell {
     background: #0f3460; border-radius: 6px;
-    cursor: pointer; transition: background 0.25s, transform 0.2s, box-shadow 0.3s, filter 0.3s;
+    cursor: pointer; transition: background 0.25s, transform 0.2s, box-shadow 0.3s;
     position: relative; display: flex; align-items: center; justify-content: center;
   }
   .cell:hover:not(.p1):not(.p2) { background: #1a4a7a; transform: scale(1.08); }
   .cell.p1 { background: #4fc3f7; box-shadow: 0 0 12px #4fc3f766; cursor: default; }
   .cell.p2 { background: #ef5350; box-shadow: 0 0 12px #ef535066; cursor: default; }
 
+  /* Threat indicator: glowing "!" */
+  .cell.threatened::after {
+    content: '!';
+    position: absolute;
+    font-size: 20px;
+    font-weight: 900;
+    color: white;
+    text-shadow: 0 0 6px rgba(255,255,255,0.9), 0 0 12px rgba(255,255,255,0.4);
+    pointer-events: none;
+    line-height: 1;
+  }
+
+  /* Capture-preview dot */
   .cell.vulnerable::after {
     content: ''; position: absolute; width: 14px; height: 14px;
     border-radius: 50%; background: white;
@@ -149,6 +162,7 @@ function renderBoard() {
     cell.className = 'cell';
     cell.style.width = sz+'px';
     cell.style.height = sz+'px';
+    if (sz <= 32) cell.style.fontSize = '14px';
     cell.dataset.r = r; cell.dataset.c = c;
     cell.addEventListener('click', () => onCellClick(r,c));
     el.appendChild(cell);
@@ -190,7 +204,7 @@ function simulateMove(b, r, c, player) {
 function applyMove(r, c, player) {
   board[r][c] = player;
   updateCellVisual(r, c, false);
-  updateAllBrightness();
+  updateThreats();
 
   const opp = player===1?2:1;
 
@@ -222,8 +236,8 @@ function applyMove(r, c, player) {
     setTimeout(()=>{
       wave.forEach(([fr,fc])=>{
         const cell = getCell(fr,fc);
+        cell.classList.remove('threatened');
         cell.classList.add('vulnerable');
-        cell.style.filter = 'brightness(1)';
       });
     }, t);
     t += DOT_TIME;
@@ -234,7 +248,7 @@ function applyMove(r, c, player) {
         const cell = getCell(fr,fc);
         cell.classList.remove('vulnerable');
         updateCellVisual(fr, fc, true);
-        updateAllBrightness();
+        updateThreats();
         updateInfo();
       }, t + i * FLIP_GAP);
     });
@@ -465,20 +479,26 @@ function updateCellVisual(r,c,animate) {
 }
 
 /*
- * Two-level brightness:
- *   100% — (friendly − enemy) >= 1  → safe from a single enemy placement
- *    50% — otherwise               → can be captured in one move
+ * Show "!" on cells that can be captured by a single enemy
+ * placement (without cascade).  Conditions:
+ *   1. (friendly neighbors − enemy neighbors) < 1
+ *   2. At least one neighboring cell is empty (the enemy
+ *      could actually place there).
+ * If all 8 neighbours are occupied, no new enemy can appear
+ * adjacent → no direct threat → no icon.
  */
-function updateAllBrightness() {
+function updateThreats() {
   for (let r=0; r<N; r++) for (let c=0; c<N; c++) {
     const cell = getCell(r,c);
     if (!cell) continue;
     const player = board[r][c];
-    if (player === 0) { cell.style.filter = ''; continue; }
+    if (player === 0) { cell.classList.remove('threatened'); continue; }
     const opp = player===1?2:1;
     const fn = countAround(board, r, c, player);
     const en = countAround(board, r, c, opp);
-    cell.style.filter = (fn - en >= 1) ? 'brightness(1)' : 'brightness(0.5)';
+    const hasEmpty = neighbors(r,c).some(([rr,cc]) => board[rr][cc] === 0);
+    const threatened = (fn - en < 1) && hasEmpty;
+    cell.classList.toggle('threatened', threatened);
   }
 }
 

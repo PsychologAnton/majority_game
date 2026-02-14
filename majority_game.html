@@ -203,6 +203,8 @@ function applyMove(r, c, player) {
 
 function onCellClick(r,c) {
   if (gameOver || aiThinking || currentPlayer!==1 || board[r][c]!==0) return;
+  const legal = getLegalCells(board, 1);
+  if (!legal.some(([lr,lc]) => lr===r && lc===c)) return;
   applyMove(r,c,1);
   currentPlayer = 2;
   updateInfo();
@@ -227,6 +229,25 @@ function getEmptyCells(b) {
   return cells;
 }
 
+/*
+ * First-move rule: if a player has zero pieces on the board,
+ * they may NOT place adjacent to any opponent piece.
+ * This prevents the free capture on the very first reply.
+ */
+function getLegalCells(b, player) {
+  const empty = getEmptyCells(b);
+  const opp = player===1?2:1;
+  let myCount = 0;
+  for (let r=0;r<N;r++) for (let c=0;c<N;c++) if (b[r][c]===player) myCount++;
+  if (myCount === 0) {
+    const filtered = empty.filter(([r,c]) =>
+      neighbors(r,c).every(([rr,cc]) => b[rr][cc] !== opp)
+    );
+    if (filtered.length > 0) return filtered;
+  }
+  return empty;
+}
+
 function boardScore(b, player) {
   let my=0, opp=0;
   const opponent = player===1?2:1;
@@ -237,12 +258,10 @@ function boardScore(b, player) {
   return my - opp;
 }
 
-/* How many of player's own pieces surround (r,c) */
 function friendlyAdjacent(b, r, c, player) {
   return neighbors(r,c).filter(([rr,cc]) => b[rr][cc] === player).length;
 }
 
-/* 0 = corner, 1 = exact center — prefers central positions */
 function centerProximity(r, c) {
   const cr = (N-1)/2, cc = (N-1)/2;
   const maxDist = Math.sqrt(cr*cr + cc*cc);
@@ -250,15 +269,10 @@ function centerProximity(r, c) {
   return 1 - dist / maxDist;
 }
 
-/* Cells with more neighbors are inherently more defensible (corner=3, edge=5, inner=8) */
 function neighborCount(r, c) {
   return neighbors(r,c).length;
 }
 
-/*
- * Stability: count "safe" pieces (friendly neighbors > enemy neighbors)
- * minus "at-risk" pieces (enemy neighbors >= friendly, enemy > 0).
- */
 function stabilityScore(b, player) {
   const opp = player===1?2:1;
   let safe = 0, risk = 0;
@@ -273,7 +287,6 @@ function stabilityScore(b, player) {
   return safe - risk * 2;
 }
 
-/* Composite board evaluation used by Medium & Hard AI */
 function evaluate(b, player) {
   const opp = player===1?2:1;
   const net = boardScore(b, player);
@@ -282,9 +295,8 @@ function evaluate(b, player) {
   return net * 4 + (myStab - oppStab) * 1.5;
 }
 
-/* ---- Easy: mostly random, slight capture bonus ---- */
 function aiEasy() {
-  const empty = getEmptyCells(board);
+  const empty = getLegalCells(board, 2);
   if (!empty.length) return null;
   let best = [], bestScore = -Infinity;
   for (const [r,c] of empty) {
@@ -296,14 +308,13 @@ function aiEasy() {
   return best[Math.floor(Math.random()*best.length)];
 }
 
-/* ---- Medium: greedy — cohesion + center + captures + disruption ---- */
 function aiMedium() {
-  const empty = getEmptyCells(board);
+  const empty = getLegalCells(board, 2);
   if (!empty.length) return null;
   let best = null, bestScore = -Infinity;
 
   const totalCells = N*N;
-  const filled = totalCells - empty.length;
+  const filled = totalCells - getEmptyCells(board).length;
   const phase = filled / totalCells;
 
   for (const [r,c] of empty) {
@@ -325,26 +336,23 @@ function aiMedium() {
   return best;
 }
 
-/* ---- Hard: minimax (depth 1) with smart eval & prioritised sampling ---- */
 function aiHard() {
-  const empty = getEmptyCells(board);
+  const empty = getLegalCells(board, 2);
   if (!empty.length) return null;
   let best = null, bestVal = -Infinity;
 
   const totalCells = N*N;
-  const filled = totalCells - empty.length;
+  const filled = totalCells - getEmptyCells(board).length;
   const phase = filled / totalCells;
 
   for (const [r,c] of empty) {
     const sim = simulateMove(board,r,c,2);
     const myEval = evaluate(sim.board, 2);
 
-    /* Minimax: consider opponent's best reply */
     const emptyAfter = getEmptyCells(sim.board);
     let worstAfterReply = myEval;
 
     if (emptyAfter.length > 0) {
-      /* Rank opponent moves by threat: near our pieces first */
       const ranked = emptyAfter.map(([rr,cc]) => {
         const threatToUs = friendlyAdjacent(sim.board, rr, cc, 2);
         const oppCoh    = friendlyAdjacent(sim.board, rr, cc, 1);

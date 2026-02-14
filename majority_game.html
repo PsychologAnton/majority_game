@@ -464,6 +464,11 @@ function updateCellVisual(r,c,animate) {
   if (animate) { cell.classList.add('flip'); setTimeout(()=>cell.classList.remove('flip'),350); }
 }
 
+/*
+ * Two-level brightness:
+ *   100% — (friendly − enemy) >= 1  → safe from a single enemy placement
+ *    50% — otherwise               → can be captured in one move
+ */
 function updateAllBrightness() {
   for (let r=0; r<N; r++) for (let c=0; c<N; c++) {
     const cell = getCell(r,c);
@@ -473,9 +478,7 @@ function updateAllBrightness() {
     const opp = player===1?2:1;
     const fn = countAround(board, r, c, player);
     const en = countAround(board, r, c, opp);
-    const diff = Math.max(-1, Math.min(8, fn - en));
-    const k = (diff + 1) / 9;
-    cell.style.filter = 'brightness(' + (0.4 + k * 0.8).toFixed(2) + ')';
+    cell.style.filter = (fn - en >= 1) ? 'brightness(1)' : 'brightness(0.5)';
   }
 }
 

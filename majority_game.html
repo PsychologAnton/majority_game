@@ -229,11 +229,6 @@ function getEmptyCells(b) {
   return cells;
 }
 
-/*
- * First-move rule: if a player has zero pieces on the board,
- * they may NOT place adjacent to any opponent piece.
- * This prevents the free capture on the very first reply.
- */
 function getLegalCells(b, player) {
   const empty = getEmptyCells(b);
   const opp = player===1?2:1;
@@ -432,16 +427,28 @@ function updateInfo() {
 }
 
 function checkEnd() {
-  let empty=0;
-  board.forEach(row=>row.forEach(v=>{ if(v===0) empty++; }));
-  if (empty===0) {
+  let s1=0, s2=0, empty=0;
+  board.forEach(row=>row.forEach(v=>{ if(v===1)s1++; if(v===2)s2++; if(v===0)empty++; }));
+
+  const totalPlaced = s1 + s2;
+  let ended = false;
+
+  /* Wipeout: one side lost every piece (only after both have played) */
+  if (totalPlaced >= 2 && (s1 === 0 || s2 === 0)) {
+    ended = true;
+  }
+
+  /* Board full */
+  if (empty === 0) {
+    ended = true;
+  }
+
+  if (ended) {
     gameOver = true;
-    let s1=0, s2=0;
-    board.forEach(row=>row.forEach(v=>{ if(v===1)s1++; if(v===2)s2++; }));
     const overlay = document.getElementById('winner-overlay');
     const txt = document.getElementById('winnerText');
-    if (s1>s2) { txt.textContent = '🔵 Вы победили! '+s1+' — '+s2; txt.style.color='#4fc3f7'; }
-    else if (s2>s1) { txt.textContent = '🔴 ИИ победил! '+s2+' — '+s1; txt.style.color='#ef5350'; }
+    if (s1 > s2) { txt.textContent = '🔵 Вы победили! '+s1+' — '+s2; txt.style.color='#4fc3f7'; }
+    else if (s2 > s1) { txt.textContent = '🔴 ИИ победил! '+s2+' — '+s1; txt.style.color='#ef5350'; }
     else { txt.textContent = '🤝 Ничья! '+s1+' — '+s2; txt.style.color='#e0e0ff'; }
     overlay.classList.add('show');
     return true;

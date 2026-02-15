@@ -234,9 +234,10 @@
 const code = document.getElementById('code').textContent.trim();
 const myId = localStorage.getItem('mg_player_id');
 let boardSize = 8;
-let lastTurnIdx = -1;
 let currentBoard = [];
 let playersInfo = [];
+let animationInProgress = false;
+let lastBoardState = '';
 
 async function api(path, body){
     const opts = body ? { 
@@ -285,10 +286,7 @@ function updateThreats() {
         continue;
       }
       
-      // Check if this cell is under threat
       const fn = countAround(currentBoard, r, c, player);
-      
-      // Count all enemy neighbors (any player that's not this one)
       let maxEnemyCount = 0;
       for (let p = 1; p <= 5; p++) {
         if (p !== player) {
@@ -297,7 +295,6 @@ function updateThreats() {
         }
       }
       
-      // Check if there's at least one empty neighbor
       const hasEmpty = neighbors(r, c, N)
         .some(([rr,cc]) => currentBoard[rr][cc] === 0);
       
@@ -307,8 +304,86 @@ function updateThreats() {
   }
 }
 
+function updateCellVisual(r, c, animate) {
+  const cell = getCell(r, c);
+  if (!cell) return;
+  
+  const val = currentBoard[r][c];
+  const cls = val > 0 ? ` p${val}` : '';
+  cell.className = 'cell' + cls;
+  
+  if (animate) {
+    cell.classList.add('flip');
+    setTimeout(() => cell.classList.remove('flip'), 350);
+  }
+}
+
+function renderBoardWithAnimation(newBoard, oldBoard) {
+  const N = newBoard.length;
+  
+  // Найти изменения
+  const changes = [];
+  for (let r = 0; r < N; r++) {
+    for (let c = 0; c < N; c++) {
+      if (newBoard[r][c] !== oldBoard[r][c]) {
+        changes.push([r, c, oldBoard[r][c], newBoard[r][c]]);
+      }
+    }
+  }
+  
+  if (changes.length === 0) return 0;
+  
+  // Группировка изменений по волнам (примитивная эвристика)
+  // Клетка с 0 -> X это ход, остальные - захваты
+  const moves = changes.filter(([r,c,old,_]) => old === 0);
+  const captures = changes.filter(([r,c,old,_]) => old !== 0);
+  
+  const DOT_TIME = 350;
+  const FLIP_GAP = N <= 10 ? 100 : 40;
+  const WAVE_PAUSE = 150;
+  
+  let t = 0;
+  
+  // Сначала ход (если есть)
+  if (moves.length > 0) {
+    moves.forEach(([r, c]) => {
+      currentBoard[r][c] = newBoard[r][c];
+      updateCellVisual(r, c, false);
+    });
+    updateThreats();
+  }
+  
+  // Затем захваты с анимацией
+  if (captures.length > 0) {
+    // Показать vulnerable точки
+    setTimeout(() => {
+      captures.forEach(([r, c]) => {
+        const cell = getCell(r, c);
+        if (cell) {
+          cell.classList.remove('threatened');
+          cell.classList.add('vulnerable');
+        }
+      });
+    }, t);
+    t += DOT_TIME;
+    
+    // Анимация переворота каждой клетки
+    captures.forEach(([r, c], i) => {
+      setTimeout(() => {
+        currentBoard[r][c] = newBoard[r][c];
+        const cell = getCell(r, c);
+        if (cell) cell.classList.remove('vulnerable');
+        updateCellVisual(r, c, true);
+        updateThreats();
+      }, t + i * FLIP_GAP);
+    });
+    t += captures.length * FLIP_GAP + WAVE_PAUSE;
+  }
+  
+  return t;
+}
+
 function renderBoard(grid, size) {
-    currentBoard = grid;
     const el = document.getElementById('board');
     const sz = cellSize(size);
     
@@ -334,29 +409,36 @@ function renderBoard(grid, size) {
         }
     }
     
-    // Update cell states
-    for(let r=0; r<size; r++){
+    // Проверить, нужна ли анимация
+    const boardStateStr = JSON.stringify(grid);
+    const oldBoard = currentBoard.length === size ? currentBoard : grid.map(row => [...row]);
+    
+    if (boardStateStr !== lastBoardState && currentBoard.length === size) {
+      // Есть изменения
+      const animTime = renderBoardWithAnimation(grid, oldBoard);
+      if (animTime > 0) {
+        animationInProgress = true;
+        setTimeout(() => {
+          animationInProgress = false;
+        }, animTime);
+      }
+    } else {
+      // Первая загрузка или нет изменений
+      currentBoard = grid.map(row => [...row]);
+      for(let r=0; r<size; r++){
         for(let c=0; c<size; c++){
-            const val = grid[r][c];
-            const cell = el.children[r*size + c];
-            const oldClass = cell.className;
-            const newClass = 'cell' + (val > 0 ? ' p'+val : '');
-            
-            // Add flip animation if cell changed from one player to another
-            if (val > 0 && oldClass.includes('p') && !oldClass.includes('p'+val)) {
-              cell.classList.add('flip');
-              setTimeout(() => cell.classList.remove('flip'), 350);
-            }
-            
-            cell.className = newClass;
+          updateCellVisual(r, c, false);
         }
+      }
+      updateThreats();
     }
     
-    // Update threat indicators
-    updateThreats();
+    lastBoardState = boardStateStr;
 }
 
 async function onCellClick(r, c) {
+    if (animationInProgress) return;
+    
     const res = await api(`/api/game/${code}/move`, {player_id: myId, r, c});
     if(res.ok) {
         // Lock board during animation
@@ -367,9 +449,11 @@ async function onCellClick(r, c) {
         // Quick refresh
         setTimeout(() => {
           refresh().then(() => {
-            document.querySelectorAll('.cell').forEach(cell => {
-              cell.classList.remove('locked');
-            });
+            setTimeout(() => {
+              document.querySelectorAll('.cell').forEach(cell => {
+                cell.classList.remove('locked');
+              });
+            }, 500);
           });
         }, 100);
     } else {
@@ -397,7 +481,7 @@ function renderPlayers(info, scores, currentId, winner) {
     }).join('');
 
     const status = document.getElementById('status');
-    if(winner) {
+    if(winner && !animationInProgress) {
         status.textContent = "Игра окончена!";
         status.className = "status";
         
@@ -440,7 +524,15 @@ async function refresh() {
 
         boardSize = data.size;
         renderBoard(data.board, data.size);
-        renderPlayers(data.players_info, data.scores, data.current_player_id, data.winner);
+        
+        // Подождать завершения анимации перед показом победителя
+        if (data.winner && !animationInProgress) {
+          setTimeout(() => {
+            renderPlayers(data.players_info, data.scores, data.current_player_id, data.winner);
+          }, 100);
+        } else {
+          renderPlayers(data.players_info, data.scores, data.current_player_id, data.winner);
+        }
     } catch (e) {
         console.error('Refresh error:', e);
     }

@@ -318,46 +318,90 @@ function updateCellVisual(r, c, animate) {
   }
 }
 
-function renderBoardWithAnimation(newBoard, oldBoard) {
-  const N = newBoard.length;
+function calculateCascadeWaves(initialBoard, moveR, moveC, player) {
+  // Вычисляем волны каскада как в прототипе
+  const N = initialBoard.length;
+  const waves = [];
+  const tmp = initialBoard.map(row => [...row]);
   
-  // Найти изменения
-  const changes = [];
-  for (let r = 0; r < N; r++) {
-    for (let c = 0; c < N; c++) {
-      if (newBoard[r][c] !== oldBoard[r][c]) {
-        changes.push([r, c, oldBoard[r][c], newBoard[r][c]]);
+  // Первый ход
+  tmp[moveR][moveC] = player;
+  
+  let go = true;
+  while (go) {
+    go = false;
+    const wave = [];
+    
+    for (let rr = 0; rr < N; rr++) {
+      for (let cc = 0; cc < N; cc++) {
+        const cellVal = tmp[rr][cc];
+        if (cellVal !== 0 && cellVal !== player) {
+          // Это вражеская клетка
+          const friendlyCount = countAround(tmp, rr, cc, player);
+          const enemyCount = countAround(tmp, rr, cc, cellVal);
+          
+          if (friendlyCount > enemyCount) {
+            wave.push([rr, cc]);
+          }
+        }
       }
+    }
+    
+    if (wave.length > 0) {
+      // Применяем захваты этой волны
+      wave.forEach(([r, c]) => {
+        tmp[r][c] = player;
+      });
+      waves.push(wave);
+      go = true; // Продолжаем каскад
     }
   }
   
-  if (changes.length === 0) return 0;
+  return waves;
+}
+
+function renderBoardWithAnimation(newBoard, oldBoard) {
+  const N = newBoard.length;
   
-  // Группировка изменений по волнам (примитивная эвристика)
-  // Клетка с 0 -> X это ход, остальные - захваты
-  const moves = changes.filter(([r,c,old,_]) => old === 0);
-  const captures = changes.filter(([r,c,old,_]) => old !== 0);
+  // Найти ход (клетка 0 -> X)
+  let moveR = -1, moveC = -1, player = 0;
+  for (let r = 0; r < N; r++) {
+    for (let c = 0; c < N; c++) {
+      if (oldBoard[r][c] === 0 && newBoard[r][c] !== 0) {
+        moveR = r;
+        moveC = c;
+        player = newBoard[r][c];
+        break;
+      }
+    }
+    if (moveR >= 0) break;
+  }
   
-  const DOT_TIME = 350;
-  const FLIP_GAP = N <= 10 ? 100 : 40;
-  const WAVE_PAUSE = 150;
+  if (moveR < 0) {
+    // Нет хода, просто обновляем
+    return 0;
+  }
+  
+  // Вычисляем волны каскада
+  const waves = calculateCascadeWaves(oldBoard, moveR, moveC, player);
+  
+  // Увеличенные задержки для лучшей видимости
+  const DOT_TIME = 400;   // Время показа точек
+  const FLIP_GAP = N <= 10 ? 150 : 80;  // Задержка между переворотами
+  const WAVE_PAUSE = 250; // Пауза между волнами
   
   let t = 0;
   
-  // Сначала ход (если есть)
-  if (moves.length > 0) {
-    moves.forEach(([r, c]) => {
-      currentBoard[r][c] = newBoard[r][c];
-      updateCellVisual(r, c, false);
-    });
-    updateThreats();
-  }
+  // Показываем ход
+  currentBoard[moveR][moveC] = player;
+  updateCellVisual(moveR, moveC, false);
+  updateThreats();
   
-  // Затем захваты с анимацией
-  if (captures.length > 0) {
-    // Показать vulnerable точки
+  // Анимируем каждую волну
+  waves.forEach((wave, waveIdx) => {
+    // Показываем точки на всех клетках волны
     setTimeout(() => {
-      captures.forEach(([r, c]) => {
+      wave.forEach(([r, c]) => {
         const cell = getCell(r, c);
         if (cell) {
           cell.classList.remove('threatened');
@@ -367,18 +411,21 @@ function renderBoardWithAnimation(newBoard, oldBoard) {
     }, t);
     t += DOT_TIME;
     
-    // Анимация переворота каждой клетки
-    captures.forEach(([r, c], i) => {
+    // Переворачиваем клетки последовательно, одну за другой
+    wave.forEach(([r, c], i) => {
       setTimeout(() => {
-        currentBoard[r][c] = newBoard[r][c];
+        currentBoard[r][c] = player;
         const cell = getCell(r, c);
-        if (cell) cell.classList.remove('vulnerable');
+        if (cell) {
+          cell.classList.remove('vulnerable');
+        }
         updateCellVisual(r, c, true);
         updateThreats();
       }, t + i * FLIP_GAP);
     });
-    t += captures.length * FLIP_GAP + WAVE_PAUSE;
-  }
+    
+    t += wave.length * FLIP_GAP + WAVE_PAUSE;
+  });
   
   return t;
 }
@@ -411,7 +458,7 @@ function renderBoard(grid, size) {
     
     // Проверить, нужна ли анимация
     const boardStateStr = JSON.stringify(grid);
-    const oldBoard = currentBoard.length === size ? currentBoard : grid.map(row => [...row]);
+    const oldBoard = currentBoard.length === size ? currentBoard.map(row => [...row]) : grid.map(row => [...row]);
     
     if (boardStateStr !== lastBoardState && currentBoard.length === size) {
       // Есть изменения
@@ -420,6 +467,8 @@ function renderBoard(grid, size) {
         animationInProgress = true;
         setTimeout(() => {
           animationInProgress = false;
+          // Финальное обновление доски
+          currentBoard = grid.map(row => [...row]);
         }, animTime);
       }
     } else {
@@ -529,7 +578,7 @@ async function refresh() {
         if (data.winner && !animationInProgress) {
           setTimeout(() => {
             renderPlayers(data.players_info, data.scores, data.current_player_id, data.winner);
-          }, 100);
+          }, 200);
         } else {
           renderPlayers(data.players_info, data.scores, data.current_player_id, data.winner);
         }

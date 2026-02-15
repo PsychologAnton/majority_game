@@ -62,7 +62,6 @@
     .cell.p4 { background: #f59e0b; box-shadow: 0 0 12px #f59e0b66; cursor: default; }
     .cell.p5 { background: #8b5cf6; box-shadow: 0 0 12px #8b5cf666; cursor: default; }
 
-    /* Threat indicator: glowing "!" */
     .cell.threatened::after {
       content: '!';
       position: absolute;
@@ -74,7 +73,6 @@
       line-height: 1;
     }
 
-    /* Capture-preview dot */
     .cell.vulnerable::after {
       content: ''; 
       position: absolute; 
@@ -230,6 +228,9 @@
   <button class="btn" onclick="location.href='/'">Играть снова</button>
 </div>
 
+<!-- Общие модули -->
+<script src="/static/game-logic.js"></script>
+
 <script>
 const code = document.getElementById('code').textContent.trim();
 const myId = localStorage.getItem('mg_player_id');
@@ -258,19 +259,10 @@ function getCell(r, c) {
   return el.querySelector(`.cell[data-r="${r}"][data-c="${c}"]`);
 }
 
-function neighbors(r, c, size) {
-  const dirs = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
-  return dirs.map(([dr,dc])=>[r+dr,c+dc])
-    .filter(([rr,cc])=>rr>=0&&rr<size&&cc>=0&&cc<size);
-}
+// Используем neighbors из game-logic.js
+// Используем countAround из game-logic.js
 
-function countAround(board, r, c, playerNum) {
-  return neighbors(r, c, board.length)
-    .filter(([rr,cc])=>board[rr][cc]===playerNum)
-    .length;
-}
-
-function updateThreats() {
+function updateThreatsMultiplayer() {
   if (!currentBoard || currentBoard.length === 0) return;
   
   const N = currentBoard.length;
@@ -318,13 +310,11 @@ function updateCellVisual(r, c, animate) {
   }
 }
 
-function calculateCascadeWaves(initialBoard, moveR, moveC, player) {
-  // Вычисляем волны каскада как в прототипе
+function calculateCascadeWavesMultiplayer(initialBoard, moveR, moveC, player) {
   const N = initialBoard.length;
   const waves = [];
   const tmp = initialBoard.map(row => [...row]);
   
-  // Первый ход
   tmp[moveR][moveC] = player;
   
   let go = true;
@@ -336,7 +326,6 @@ function calculateCascadeWaves(initialBoard, moveR, moveC, player) {
       for (let cc = 0; cc < N; cc++) {
         const cellVal = tmp[rr][cc];
         if (cellVal !== 0 && cellVal !== player) {
-          // Это вражеская клетка
           const friendlyCount = countAround(tmp, rr, cc, player);
           const enemyCount = countAround(tmp, rr, cc, cellVal);
           
@@ -348,12 +337,11 @@ function calculateCascadeWaves(initialBoard, moveR, moveC, player) {
     }
     
     if (wave.length > 0) {
-      // Применяем захваты этой волны
       wave.forEach(([r, c]) => {
         tmp[r][c] = player;
       });
       waves.push(wave);
-      go = true; // Продолжаем каскад
+      go = true;
     }
   }
   
@@ -363,7 +351,6 @@ function calculateCascadeWaves(initialBoard, moveR, moveC, player) {
 function renderBoardWithAnimation(newBoard, oldBoard) {
   const N = newBoard.length;
   
-  // Найти ход (клетка 0 -> X)
   let moveR = -1, moveC = -1, player = 0;
   for (let r = 0; r < N; r++) {
     for (let c = 0; c < N; c++) {
@@ -377,29 +364,21 @@ function renderBoardWithAnimation(newBoard, oldBoard) {
     if (moveR >= 0) break;
   }
   
-  if (moveR < 0) {
-    // Нет хода, просто обновляем
-    return 0;
-  }
+  if (moveR < 0) return 0;
   
-  // Вычисляем волны каскада
-  const waves = calculateCascadeWaves(oldBoard, moveR, moveC, player);
+  const waves = calculateCascadeWavesMultiplayer(oldBoard, moveR, moveC, player);
   
-  // Увеличенные задержки для лучшей видимости
-  const DOT_TIME = 400;   // Время показа точек
-  const FLIP_GAP = N <= 10 ? 150 : 80;  // Задержка между переворотами
-  const WAVE_PAUSE = 250; // Пауза между волнами
+  const DOT_TIME = 400;
+  const FLIP_GAP = N <= 10 ? 150 : 80;
+  const WAVE_PAUSE = 250;
   
   let t = 0;
   
-  // Показываем ход
   currentBoard[moveR][moveC] = player;
   updateCellVisual(moveR, moveC, false);
-  updateThreats();
+  updateThreatsMultiplayer();
   
-  // Анимируем каждую волну
-  waves.forEach((wave, waveIdx) => {
-    // Показываем точки на всех клетках волны
+  waves.forEach((wave) => {
     setTimeout(() => {
       wave.forEach(([r, c]) => {
         const cell = getCell(r, c);
@@ -411,16 +390,13 @@ function renderBoardWithAnimation(newBoard, oldBoard) {
     }, t);
     t += DOT_TIME;
     
-    // Переворачиваем клетки последовательно, одну за другой
     wave.forEach(([r, c], i) => {
       setTimeout(() => {
         currentBoard[r][c] = player;
         const cell = getCell(r, c);
-        if (cell) {
-          cell.classList.remove('vulnerable');
-        }
+        if (cell) cell.classList.remove('vulnerable');
         updateCellVisual(r, c, true);
-        updateThreats();
+        updateThreatsMultiplayer();
       }, t + i * FLIP_GAP);
     });
     
@@ -434,7 +410,6 @@ function renderBoard(grid, size) {
     const el = document.getElementById('board');
     const sz = cellSize(size);
     
-    // Only rebuild if size changed
     if(el.children.length !== size*size) {
         el.innerHTML = '';
         el.style.gridTemplateColumns = `repeat(${size}, ${sz}px)`;
@@ -456,30 +431,26 @@ function renderBoard(grid, size) {
         }
     }
     
-    // Проверить, нужна ли анимация
     const boardStateStr = JSON.stringify(grid);
     const oldBoard = currentBoard.length === size ? currentBoard.map(row => [...row]) : grid.map(row => [...row]);
     
     if (boardStateStr !== lastBoardState && currentBoard.length === size) {
-      // Есть изменения
       const animTime = renderBoardWithAnimation(grid, oldBoard);
       if (animTime > 0) {
         animationInProgress = true;
         setTimeout(() => {
           animationInProgress = false;
-          // Финальное обновление доски
           currentBoard = grid.map(row => [...row]);
         }, animTime);
       }
     } else {
-      // Первая загрузка или нет изменений
       currentBoard = grid.map(row => [...row]);
       for(let r=0; r<size; r++){
         for(let c=0; c<size; c++){
           updateCellVisual(r, c, false);
         }
       }
-      updateThreats();
+      updateThreatsMultiplayer();
     }
     
     lastBoardState = boardStateStr;
@@ -490,12 +461,10 @@ async function onCellClick(r, c) {
     
     const res = await api(`/api/game/${code}/move`, {player_id: myId, r, c});
     if(res.ok) {
-        // Lock board during animation
         document.querySelectorAll('.cell').forEach(cell => {
           cell.classList.add('locked');
         });
         
-        // Quick refresh
         setTimeout(() => {
           refresh().then(() => {
             setTimeout(() => {
@@ -574,7 +543,6 @@ async function refresh() {
         boardSize = data.size;
         renderBoard(data.board, data.size);
         
-        // Подождать завершения анимации перед показом победителя
         if (data.winner && !animationInProgress) {
           setTimeout(() => {
             renderPlayers(data.players_info, data.scores, data.current_player_id, data.winner);

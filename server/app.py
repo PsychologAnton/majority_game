@@ -30,6 +30,10 @@ def create_app() -> Flask:
     def index():
         return render_template("index.html", formats=store.formats)
 
+    @app.get("/singleplayer")
+    def singleplayer_page():
+        return render_template("singleplayer.html")
+
     @app.get("/lobby/<code>")
     def lobby_page(code: str):
         return render_template("lobby.html", code=code)
@@ -158,4 +162,4 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5555, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)

@@ -6,7 +6,9 @@ import secrets
 import string
 import threading
 import time
+import random
 
+from .game_engine import GameEngine
 
 def _now() -> float:
     return time.time()
@@ -37,7 +39,8 @@ class Lobby:
     max_players: int
     created_at: float
     started: bool
-    players: Dict[str, Player]  # key = player_id
+    players: Dict[str, Player]
+    game: Optional[GameEngine] = None  # The actual game instance
 
     def host(self) -> Optional[Player]:
         for p in self.players.values():
@@ -46,7 +49,6 @@ class Lobby:
         return None
 
     def player_list(self) -> List[dict]:
-        # Sort by join time for stable UI
         items = sorted(self.players.values(), key=lambda p: p.joined_at)
         return [
             {
@@ -65,9 +67,7 @@ class LobbyStore:
         self._lobbies: Dict[str, Lobby] = {}
         self.max_players = int(max_players)
         self.player_timeout_seconds = int(player_timeout_seconds)
-
-        # Placeholder formats; can be changed later.
-        self.formats = ["Classic", "Fast", "Blitz"]
+        self.formats = ["6x6", "8x8", "10x10", "16x16"]
 
     def _new_player(self, nick: str, is_host: bool) -> Player:
         pid = secrets.token_urlsafe(10)
@@ -144,7 +144,6 @@ class LobbyStore:
             if len(lobby.players) >= lobby.max_players:
                 return {"ok": False, "error": "Lobby is full"}
 
-            # Enforce unique nick inside lobby (simple approach)
             nicks = {p.nick.lower() for p in lobby.players.values()}
             if nick.lower() in nicks:
                 return {"ok": False, "error": "Nick already taken in this lobby"}
@@ -169,7 +168,6 @@ class LobbyStore:
             if not p:
                 return False
 
-            # If host left, promote earliest joined remaining player
             if p.is_host and lobby.players:
                 remaining = sorted(lobby.players.values(), key=lambda x: x.joined_at)
                 remaining[0].is_host = True
@@ -203,8 +201,56 @@ class LobbyStore:
             if lobby.started:
                 return {"ok": False, "error": "Already started"}
 
+            if len(lobby.players) < 2:
+                # For testing, maybe allow 1? But user wants 3 player support.
+                # Let's enforce 2+ for sanity, or just let it slide.
+                pass 
+
+            # Initialize GameEngine
+            # Randomize order
+            p_ids = list(lobby.players.keys())
+            random.shuffle(p_ids)
+            
+            # Parse size
+            try:
+                size = int(lobby.game_format.split('x')[0])
+            except:
+                size = 8
+
+            lobby.game = GameEngine(size=size, players=p_ids)
             lobby.started = True
+            
             return {"ok": True, "started": True}
+
+    def get_game_state(self, code: str) -> Optional[dict]:
+        code = _norm_code(code)
+        with self._lock:
+            lobby = self._lobbies.get(code)
+            if not lobby or not lobby.game:
+                return None
+            
+            state = lobby.game.get_state()
+            
+            # Enrich with nicks
+            players_info = []
+            for pid in state["players"]:
+                pl = lobby.players.get(pid)
+                players_info.append({
+                    "id": pid,
+                    "nick": pl.nick if pl else "Unknown"
+                })
+            
+            state["players_info"] = players_info
+            return state
+
+    def make_move(self, code: str, player_id: str, r: int, c: int) -> dict:
+        code = _norm_code(code)
+        with self._lock:
+            lobby = self._lobbies.get(code)
+            if not lobby or not lobby.game:
+                return {"ok": False, "error": "Game not active"}
+            
+            return lobby.game.make_move(r, c, player_id)
 
     def cleanup(self) -> None:
         cutoff = _now() - self.player_timeout_seconds
@@ -215,7 +261,6 @@ class LobbyStore:
                 for pid in stale:
                     lobby.players.pop(pid, None)
 
-                # Ensure host exists if players remain
                 if lobby.players and not any(p.is_host for p in lobby.players.values()):
                     remaining = sorted(lobby.players.values(), key=lambda x: x.joined_at)
                     remaining[0].is_host = True

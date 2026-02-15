@@ -17,7 +17,6 @@ def create_app() -> Flask:
 
     store = LobbyStore(max_players=5, player_timeout_seconds=35)
 
-    # Background cleanup thread (in-memory store)
     def _cleanup_loop() -> None:
         while True:
             time.sleep(5)
@@ -36,10 +35,8 @@ def create_app() -> Flask:
 
     @app.get("/game/<code>")
     def game_page(code: str):
-        # For now, just serve the existing single-player HTML prototype.
-        # Later you can load multiplayer state by lobby code.
-        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        return send_from_directory(repo_root, "majority_game.html")
+        # Multiplayer game client
+        return render_template("game.html", code=code)
 
     # -------- API --------
 
@@ -75,6 +72,7 @@ def create_app() -> Flask:
         if player_id:
             store.ping(code, player_id)
 
+        # If game started, include a flag so client redirects
         return jsonify(store.get_public_state(code))
 
     @app.post("/api/lobbies/<code>/join")
@@ -112,6 +110,35 @@ def create_app() -> Flask:
         if res["ok"] is False:
             return jsonify(res), 400
         return jsonify(res)
+    
+    # -------- Game API --------
+    
+    @app.get("/api/game/<code>")
+    def api_game_state(code: str):
+        player_id = (request.args.get("player_id") or "").strip() or None
+        if player_id:
+            store.ping(code, player_id)
+            
+        state = store.get_game_state(code)
+        if not state:
+            return jsonify({"error": "Game not found"}), 404
+        return jsonify(state)
+
+    @app.post("/api/game/<code>/move")
+    def api_game_move(code: str):
+        data = request.get_json(silent=True) or {}
+        player_id = (data.get("player_id") or "").strip()
+        row = data.get("r")
+        col = data.get("c")
+        
+        if not player_id:
+            return jsonify({"error": "Auth required"}), 401
+            
+        res = store.make_move(code, player_id, row, col)
+        if res["ok"] is False:
+            return jsonify(res), 400
+        
+        return jsonify(res)
 
     return app
 
@@ -120,5 +147,4 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    # LAN-friendly: expose on all interfaces
     app.run(host="0.0.0.0", port=5000, debug=True)

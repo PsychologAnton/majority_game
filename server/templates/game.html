@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Majority LAN — Игра</title>
+  <link rel="stylesheet" href="/static/app.css" />
+  <style>
+    body { background: #0b0e14; display: block; padding: 20px; text-align: center; }
+    .game-container { max-width: 1000px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; }
+    
+    #board {
+      display: grid; 
+      gap: 2px; 
+      padding: 8px;
+      background: #1f2937;
+      border-radius: 8px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    .cell {
+      background: #111827;
+      border-radius: 4px;
+      cursor: pointer;
+      position: relative;
+      transition: all 0.2s;
+    }
+    .cell:hover { background: #1f2937; }
+    
+    /* Player Colors (1..5) */
+    .cell.p1 { background: #3b82f6; box-shadow: 0 0 8px #3b82f6aa; }
+    .cell.p2 { background: #ef4444; box-shadow: 0 0 8px #ef4444aa; }
+    .cell.p3 { background: #10b981; box-shadow: 0 0 8px #10b981aa; }
+    .cell.p4 { background: #f59e0b; box-shadow: 0 0 8px #f59e0baa; }
+    .cell.p5 { background: #8b5cf6; box-shadow: 0 0 8px #8b5cf6aa; }
+
+    .sidebar { min-width: 250px; text-align: left; }
+    .player-card {
+      padding: 10px; margin-bottom: 8px;
+      background: #1f2937; border-radius: 8px; border: 1px solid #374151;
+      display: flex; justify-content: space-between; align-items: center;
+      transition: 0.3s;
+    }
+    .player-card.active { border-color: #e0e7ff; background: #2d3748; transform: scale(1.02); }
+    .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+    .dot.p1 { background: #3b82f6; }
+    .dot.p2 { background: #ef4444; }
+    .dot.p3 { background: #10b981; }
+    .dot.p4 { background: #f59e0b; }
+    .dot.p5 { background: #8b5cf6; }
+    
+    .status { font-size: 1.2rem; margin-bottom: 10px; font-weight: bold; color: #e0e7ff; }
+    .my-turn { color: #4ade80; }
+    
+    #winner-overlay {
+        position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+        display: none; flex-direction: column; align-items: center; justify-content: center;
+        z-index: 100;
+    }
+    #winner-overlay.show { display: flex; }
+    #winner-overlay h2 { font-size: 3rem; color: #fff; text-shadow: 0 0 20px #fff; }
+  </style>
+</head>
+<body>
+
+<div id="code" hidden>{{ code }}</div>
+
+<div class="game-container">
+  <div id="board"></div>
+
+  <div class="sidebar">
+    <div id="status" class="status">Загрузка...</div>
+    <div id="players-list"></div>
+    <button onclick="location.href='/'" style="margin-top:20px;">Выход в меню</button>
+  </div>
+</div>
+
+<div id="winner-overlay">
+  <h2 id="winner-text"></h2>
+  <button onclick="location.href='/'" class="primary" style="font-size:1.2rem; padding:15px 30px;">В меню</button>
+</div>
+
+<script>
+const code = document.getElementById('code').textContent.trim();
+const myId = localStorage.getItem('mg_player_id');
+let boardSize = 8;
+let lastTurnIdx = -1;
+
+async function api(path, body){
+    const opts = body ? { method:'POST', body: JSON.stringify(body), headers: {'Content-Type':'application/json'} } : {};
+    return fetch(path, opts).then(r=>r.json());
+}
+
+function renderBoard(grid, size) {
+    const el = document.getElementById('board');
+    if(el.children.length !== size*size) {
+        el.innerHTML = '';
+        el.style.gridTemplateColumns = `repeat(${size}, 1fr)`;
+        const px = Math.min(60, 600/size);
+        for(let r=0; r<size; r++){
+            for(let c=0; c<size; c++){
+                const d = document.createElement('div');
+                d.className = 'cell';
+                d.style.width = px+'px';
+                d.style.height = px+'px';
+                d.onclick = () => onCellClick(r,c);
+                d.dataset.r = r;
+                d.dataset.c = c;
+                el.appendChild(d);
+            }
+        }
+    }
+    
+    for(let r=0; r<size; r++){
+        for(let c=0; c<size; c++){
+            const val = grid[r][c];
+            const cell = el.children[r*size + c];
+            cell.className = 'cell' + (val > 0 ? ' p'+val : '');
+        }
+    }
+}
+
+async function onCellClick(r, c) {
+    const res = await api(`/api/game/${code}/move`, {player_id: myId, r, c});
+    if(res.ok) {
+        refresh(); // Instant refresh
+    } else {
+        console.log(res.error);
+    }
+}
+
+function renderPlayers(info, scores, currentId, winner) {
+    const box = document.getElementById('players-list');
+    box.innerHTML = info.map((p, i) => {
+        const pNum = i + 1;
+        const isTurn = p.id === currentId;
+        const isMe = p.id === myId;
+        const score = scores[p.id] || 0;
+        return `
+            <div class="player-card ${isTurn ? 'active' : ''}">
+                <div style="display:flex;align-items:center">
+                    <span class="dot p${pNum}"></span>
+                    <b>${p.nick}</b> ${isMe ? '(Вы)' : ''}
+                </div>
+                <div style="font-size:1.2em; font-weight:bold">${score}</div>
+            </div>
+        `;
+    }).join('');
+
+    const status = document.getElementById('status');
+    if(winner) {
+        status.textContent = "Игра окончена!";
+        const wInfo = info.find(x=>x.id === winner);
+        const wText = wInfo ? wInfo.nick + " победил!" : "Ничья!";
+        document.getElementById('winner-text').textContent = wText;
+        document.getElementById('winner-overlay').classList.add('show');
+    } else {
+        if(currentId === myId) {
+            status.textContent = "ВАШ ХОД";
+            status.className = "status my-turn";
+        } else {
+            const cur = info.find(x=>x.id === currentId);
+            status.textContent = "Ходит " + (cur ? cur.nick : "...");
+            status.className = "status";
+        }
+    }
+}
+
+async function refresh() {
+    const data = await api(`/api/game/${code}?player_id=${myId}`);
+    if(data.error) return; // maybe redirect
+
+    renderBoard(data.board, data.size);
+    renderPlayers(data.players_info, data.scores, data.current_player_id, data.winner);
+}
+
+setInterval(refresh, 1000);
+refresh();
+
+</script>
+</body>
+</html>

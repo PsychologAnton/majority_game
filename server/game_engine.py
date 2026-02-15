@@ -51,6 +51,50 @@ class GameEngine:
             "history_len": len(self.history)
         }
 
+    def get_legal_moves(self, player_num: int) -> List[Tuple[int, int]]:
+        """
+        Get all legal moves for a player.
+        IMPORTANT: In the early game (first 2 moves total), 
+        players cannot place adjacent to opponent pieces.
+        """
+        empty_cells = []
+        for r in range(self.size):
+            for c in range(self.size):
+                if self.board[r][c] == 0:
+                    empty_cells.append((r, c))
+        
+        # Count pieces for each player
+        player_counts = {i: 0 for i in range(1, len(self.players) + 1)}
+        for r in range(self.size):
+            for c in range(self.size):
+                val = self.board[r][c]
+                if val > 0:
+                    player_counts[val] += 1
+        
+        my_count = player_counts[player_num]
+        total_placed = sum(player_counts.values())
+        
+        # Early game restriction: if <= 1 piece per player and at least 1 piece on board,
+        # cannot place adjacent to opponent
+        if total_placed > 0 and all(count <= 1 for count in player_counts.values()):
+            # Filter out cells adjacent to opponents
+            legal = []
+            for r, c in empty_cells:
+                can_place = True
+                for nr, nc in self._neighbors(r, c):
+                    neighbor_val = self.board[nr][nc]
+                    if neighbor_val != 0 and neighbor_val != player_num:
+                        can_place = False
+                        break
+                if can_place:
+                    legal.append((r, c))
+            
+            # If filtered list is not empty, use it; otherwise fall back to all empty
+            if legal:
+                return legal
+        
+        return empty_cells
+
     def is_valid_move(self, r: int, c: int, player_id: str) -> bool:
         if self.winner:
             return False
@@ -60,7 +104,10 @@ class GameEngine:
             return False
         if self.board[r][c] != 0:
             return False
-        return True
+        
+        # Check if move is in legal moves list
+        legal_moves = self.get_legal_moves(self.current_player_num)
+        return (r, c) in legal_moves
 
     def make_move(self, r: int, c: int, player_id: str) -> dict:
         if not self.is_valid_move(r, c, player_id):
@@ -69,35 +116,8 @@ class GameEngine:
         p_num = self.current_player_num
         self.board[r][c] = p_num
         
-        # Capture logic
-        # 1. Direct neighbors capture
-        # 2. Cascade if enabled
-        
-        captured_total = []
-        
-        # Initial placement is just a placement, but it triggers checks around it?
-        # No, in Majority, you place, then checking if that placement captures neighbors? 
-        # Usually: You place at X. Check neighbors of X. If X's presence makes us majority -> flip neighbor.
-        # Wait, the rule in JS was: 
-        # "A cell is captured if among its 8 neighbors, 'friendly' > 'enemy'."
-        # So when I place a piece at (r,c), I am a new neighbor to 8 surrounding cells.
-        # I need to check those 8 surrounding cells. If any of them belong to an enemy, check if *they* are now overwhelmed.
-
-        queue = [(r,c)]
-        visited_mask = set() # For cascade to avoid loops if needed, though majority usually stabilizes.
-        # Actually standard Majority: 
-        # 1. Place piece.
-        # 2. Check all enemy neighbors of the placed piece.
-        # 3. If (my_count > their_count) for that neighbor, flip it.
-        # 4. If cascade, add flipped piece to queue and repeat checks for its neighbors.
-
-        # We need a robust loop for cascade
+        # Capture logic with cascade
         processed_flips = []
-
-        # We use a queue for the "shockwave"
-        # Initial move is already on board.
-        # We need to check neighbors of the *newly placed/flipped* piece.
-        
         check_queue = [(r, c)]
         
         while check_queue:
@@ -107,7 +127,7 @@ class GameEngine:
             for nr, nc in self._neighbors(curr_r, curr_c):
                 target_val = self.board[nr][nc]
                 if target_val != 0 and target_val != p_num:
-                    # It's an enemy (or at least not us).
+                    # It's an enemy
                     # Check majority condition for (nr, nc)
                     if self._should_capture(nr, nc, p_num, target_val):
                         # Flip!
@@ -159,9 +179,7 @@ class GameEngine:
         return att_count > def_count
 
     def _check_winner(self):
-        # Game ends if board full or only one player left (wipeout) or turns exhausted?
-        # Usually board full.
-        
+        # Game ends if board full or only one player left (wipeout)
         counts = {i:0 for i in range(1, len(self.players)+1)}
         empty = 0
         for r in range(self.size):
@@ -173,20 +191,17 @@ class GameEngine:
                     counts[v] += 1
         
         active_players = [i for i, c in counts.items() if c > 0]
+        total_placed = sum(counts.values())
         
         # If board is full, game over
         if empty == 0:
             self._finalize_winner(counts)
             return
-
-        # Optional: Wipeout check (if others have 0 pieces and can't place? 
-        # Actually in this game you can always place on empty spots unless specific rules).
-        # We'll stick to: End only if full. 
-        # Or if we want to be smarter: if only 1 player has pieces AND no empty spots? 
-        # If empty spots exist, eliminated players might rejoin if they can place?
-        # Let's assume standard: Game ends when no empty cells.
         
-        pass
+        # If at least 2 pieces placed and only one player has pieces, they win
+        if total_placed >= 2 and len(active_players) == 1:
+            self._finalize_winner(counts)
+            return
 
     def _finalize_winner(self, counts):
         # Find max

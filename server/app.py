@@ -15,11 +15,12 @@ def create_app() -> Flask:
         static_folder="static",
     )
 
-    store = LobbyStore(max_players=5, player_timeout_seconds=35)
+    # Увеличили timeout до 120 секунд, чтобы у игроков было больше времени присоединиться
+    store = LobbyStore(max_players=5, player_timeout_seconds=120)
 
     def _cleanup_loop() -> None:
         while True:
-            time.sleep(5)
+            time.sleep(10)  # Увеличили интервал очистки
             store.cleanup()
 
     t = threading.Thread(target=_cleanup_loop, daemon=True)
@@ -42,7 +43,9 @@ def create_app() -> Flask:
 
     @app.get("/api/lobbies")
     def api_list_lobbies():
-        return jsonify(store.list_public())
+        lobbies = store.list_public()
+        app.logger.info(f"[ℹ️] List lobbies: {len(lobbies)} открытых лобби")
+        return jsonify(lobbies)
 
     @app.post("/api/lobbies")
     def api_create_lobby():
@@ -55,6 +58,7 @@ def create_app() -> Flask:
             return jsonify({"error": "Unknown format"}), 400
 
         lobby, player = store.create_lobby(host_nick=nick, game_format=game_format)
+        app.logger.info(f"[✅] Создано лобби {lobby.code} игроком {nick} (ID: {player.player_id})")
         return jsonify({
             "code": lobby.code,
             "player_id": player.player_id,
@@ -67,12 +71,12 @@ def create_app() -> Flask:
         player_id = (request.args.get("player_id") or "").strip() or None
         lobby = store.get_lobby(code)
         if not lobby:
+            app.logger.warning(f"[❌] Лобби {code} не найдено")
             return jsonify({"error": "Lobby not found"}), 404
 
         if player_id:
             store.ping(code, player_id)
 
-        # If game started, include a flag so client redirects
         return jsonify(store.get_public_state(code))
 
     @app.post("/api/lobbies/<code>/join")
@@ -82,9 +86,12 @@ def create_app() -> Flask:
         if not nick:
             return jsonify({"error": "Nick is required"}), 400
 
+        app.logger.info(f"[👤] Попытка присоединения к {code} от {nick}")
         res = store.join_lobby(code=code, nick=nick)
         if res["ok"] is False:
+            app.logger.warning(f"[❌] Не удалось присоединиться: {res.get('error')}")
             return jsonify(res), 400
+        app.logger.info(f"[✅] {nick} присоединился к {code} (ID: {res['player_id']})")
         return jsonify(res)
 
     @app.post("/api/lobbies/<code>/leave")
@@ -97,6 +104,7 @@ def create_app() -> Flask:
         ok = store.leave_lobby(code=code, player_id=player_id)
         if not ok:
             return jsonify({"error": "Lobby or player not found"}), 404
+        app.logger.info(f"[🚪] Игрок {player_id} покинул лобби {code}")
         return jsonify({"ok": True})
 
     @app.post("/api/lobbies/<code>/start")
@@ -106,9 +114,12 @@ def create_app() -> Flask:
         if not player_id:
             return jsonify({"error": "player_id is required"}), 400
 
+        app.logger.info(f"[🎮] Попытка старта игры {code}")
         res = store.start_lobby(code=code, player_id=player_id)
         if res["ok"] is False:
+            app.logger.warning(f"[❌] Не удалось стартовать: {res.get('error')}")
             return jsonify(res), 400
+        app.logger.info(f"[✅] Игра {code} стартовала!")
         return jsonify(res)
     
     # -------- Game API --------
@@ -147,4 +158,4 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5555, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)

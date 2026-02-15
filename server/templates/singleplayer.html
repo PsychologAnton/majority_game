@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Majority — Абстрактная стратегия</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a2e;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    color: #eee;
+    user-select: none;
+  }
+  h1 { font-size: 1.6rem; margin-bottom: 8px; letter-spacing: 2px; color: #e0e0ff; text-transform: uppercase; }
+  .info-bar { display: flex; gap: 32px; align-items: center; margin-bottom: 12px; font-size: 1.05rem; }
+  .score { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .score .dot { width: 18px; height: 18px; border-radius: 50%; display: inline-block; }
+  .dot.p1 { background: #4fc3f7; box-shadow: 0 0 8px #4fc3f7aa; }
+  .dot.p2 { background: #ef5350; box-shadow: 0 0 8px #ef5350aa; }
+  .turn-label {
+    padding: 4px 16px; border-radius: 20px; font-weight: 700;
+    font-size: 0.95rem; transition: all 0.3s;
+  }
+  .turn-label.p1 { background: #4fc3f733; border: 2px solid #4fc3f7; color: #4fc3f7; }
+  .turn-label.p2 { background: #ef535033; border: 2px solid #ef5350; color: #ef5350; }
+
+  #board {
+    display: grid; gap: 3px; padding: 12px;
+    background: #16213e; border-radius: 12px;
+    box-shadow: 0 0 40px #0d1117aa;
+  }
+  .cell {
+    background: #0f3460; border-radius: 6px;
+    cursor: pointer; transition: background 0.25s, transform 0.2s, box-shadow 0.3s;
+    position: relative; display: flex; align-items: center; justify-content: center;
+  }
+  .cell:hover:not(.p1):not(.p2) { background: #1a4a7a; transform: scale(1.08); }
+  .cell.p1 { background: #4fc3f7; box-shadow: 0 0 12px #4fc3f766; cursor: default; }
+  .cell.p2 { background: #ef5350; box-shadow: 0 0 12px #ef535066; cursor: default; }
+
+  .cell.threatened::after {
+    content: '!';
+    position: absolute;
+    font-size: 20px;
+    font-weight: 900;
+    color: white;
+    text-shadow: 0 0 6px rgba(255,255,255,0.9), 0 0 12px rgba(255,255,255,0.4);
+    pointer-events: none;
+    line-height: 1;
+  }
+
+  .cell.vulnerable::after {
+    content: ''; position: absolute; width: 14px; height: 14px;
+    border-radius: 50%; background: white;
+    box-shadow: 0 0 6px rgba(255,255,255,0.8);
+    animation: dotPulse 0.3s infinite alternate;
+  }
+  @keyframes dotPulse {
+    from { transform: scale(0.7); opacity: 0.6; }
+    to   { transform: scale(1.1); opacity: 1; }
+  }
+
+  .cell.flip { animation: flipCell 0.35s ease; }
+  @keyframes flipCell {
+    0%   { transform: scale(1); }
+    50%  { transform: scale(0.3) rotate(180deg); }
+    100% { transform: scale(1) rotate(360deg); }
+  }
+  .cell.locked { pointer-events: none; }
+
+  .controls { margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .btn {
+    padding: 8px 20px; border: 2px solid #e0e0ff44; background: transparent;
+    color: #e0e0ff; border-radius: 8px; cursor: pointer; font-size: 0.9rem; transition: all 0.2s;
+  }
+  .btn:hover { background: #e0e0ff15; border-color: #e0e0ffaa; }
+  .btn.active { background: #e0e0ff22; border-color: #e0e0ff; }
+
+  .rules {
+    margin-top: 14px; max-width: 520px; text-align: center;
+    font-size: 0.8rem; color: #8888aa; line-height: 1.5;
+  }
+
+  #winner-overlay {
+    display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(10,10,30,0.88); align-items: center; justify-content: center;
+    flex-direction: column; z-index: 100;
+  }
+  #winner-overlay.show { display: flex; }
+  #winner-overlay h2 { font-size: 2rem; margin-bottom: 16px; }
+  #winner-overlay .btn { font-size: 1.1rem; padding: 12px 36px; }
+
+  .thinking { opacity: 0.7; animation: pulse 0.8s infinite alternate; }
+  @keyframes pulse { from { opacity: 0.5; } to { opacity: 1; } }
+</style>
+</head>
+<body>
+
+<h1>⚡ MAJORITY</h1>
+
+<div class="info-bar">
+  <div class="score"><span class="dot p1"></span> Вы: <span id="score1">0</span></div>
+  <div class="turn-label p1" id="turnLabel">Ваш ход</div>
+  <div class="score"><span class="dot p2"></span> ИИ: <span id="score2">0</span></div>
+</div>
+
+<div id="board"></div>
+
+<div class="controls">
+  <button class="btn" onclick="location.href='/'">← Главное меню</button>
+  <button class="btn" onclick="initGame()">⟳ Новая игра</button>
+  <button class="btn" onclick="toggleSize()">Поле: <span id="sizeLabel">8×8</span></button>
+  <button class="btn" onclick="toggleDifficulty()" id="diffBtn">ИИ: Средний</button>
+  <button class="btn" onclick="toggleCascade()">Каскад: <span id="cascLabel">ВКЛ</span></button>
+</div>
+
+<div class="rules">
+  Ставьте фишку на пустую клетку. Вражеская клетка <b>захватывается</b>,
+  если среди её 8 соседей ваших фишек <b>строго больше</b>, чем вражеских. Каскад — захваты порождают новые.
+</div>
+
+<div id="winner-overlay">
+  <h2 id="winnerText"></h2>
+  <button class="btn" onclick="initGame(); document.getElementById('winner-overlay').classList.remove('show');">Играть снова</button>
+</div>
+
+<script>
+// ==== Game State ====
+const SIZES = [6, 8, 10, 16];
+const DIFF_NAMES = ['Лёгкий', 'Средний', 'Сложный'];
+let sizeIdx = 1, N = 8;
+let diffIdx = 1;
+let board = [], currentPlayer = 1, cascadeOn = true, gameOver = false, aiThinking = false;
+
+function cellSize() { return N <= 10 ? 56 : 32; }
+
+function toggleSize() { sizeIdx = (sizeIdx+1)%SIZES.length; N = SIZES[sizeIdx]; document.getElementById('sizeLabel').textContent = N+'×'+N; initGame(); }
+function toggleCascade() { cascadeOn = !cascadeOn; document.getElementById('cascLabel').textContent = cascadeOn ? 'ВКЛ' : 'ВЫКЛ'; }
+function toggleDifficulty() { diffIdx = (diffIdx+1)%3; document.getElementById('diffBtn').textContent = 'ИИ: '+DIFF_NAMES[diffIdx]; initGame(); }
+
+function initGame() {
+  board = Array.from({length:N}, ()=>Array(N).fill(0));
+  currentPlayer = 1; gameOver = false; aiThinking = false;
+  renderBoard(); updateInfo();
+}
+
+function renderBoard() {
+  const el = document.getElementById('board');
+  const sz = cellSize();
+  el.style.gridTemplateColumns = `repeat(${N}, ${sz}px)`;
+  el.style.gap = N <= 10 ? '3px' : '2px';
+  el.style.padding = N <= 10 ? '12px' : '8px';
+  el.innerHTML = '';
+  for (let r=0; r<N; r++) for (let c=0; c<N; c++) {
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    cell.style.width = sz+'px';
+    cell.style.height = sz+'px';
+    if (sz <= 32) cell.style.fontSize = '14px';
+    cell.dataset.r = r; cell.dataset.c = c;
+    cell.addEventListener('click', () => onCellClick(r,c));
+    el.appendChild(cell);
+  }
+}
+
+function getCell(r,c) { return document.querySelector(`.cell[data-r="${r}"][data-c="${c}"]`); }
+
+function neighbors(r,c) {
+  const dirs = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+  return dirs.map(([dr,dc])=>[r+dr,c+dc]).filter(([rr,cc])=>rr>=0&&rr<N&&cc>=0&&cc<N);
+}
+
+function countAround(b,r,c,p) { return neighbors(r,c).filter(([rr,cc])=>b[rr][cc]===p).length; }
+
+// ==== Move Simulation (for AI) ====
+function simulateMove(b, r, c, player) {
+  const nb = b.map(row=>[...row]);
+  nb[r][c] = player;
+  const opp = player===1?2:1;
+  let flipped = true;
+  let totalFlips = 0;
+  while (flipped) {
+    flipped = false;
+    let round = [];
+    for (let rr=0;rr<N;rr++) for (let cc=0;cc<N;cc++) {
+      if (nb[rr][cc]===opp) {
+        if (countAround(nb,rr,cc,player) > countAround(nb,rr,cc,opp)) round.push([rr,cc]);
+      }
+    }
+    if (round.length>0) {
+      round.forEach(([fr,fc])=>{ nb[fr][fc]=player; });
+      totalFlips += round.length;
+      flipped = cascadeOn;
+    }
+  }
+  return { board: nb, flips: totalFlips };
+}
+
+// ==== Apply Move with Animation ====
+function applyMove(r, c, player) {
+  board[r][c] = player;
+  updateCellVisual(r, c, false);
+  updateThreats();
+
+  const opp = player===1?2:1;
+
+  // Вычисляем волны каскада
+  const waves = [];
+  const tmp = board.map(row=>[...row]);
+  let go = true;
+  while (go) {
+    go = false;
+    const wave = [];
+    for (let rr=0;rr<N;rr++) for (let cc=0;cc<N;cc++) {
+      if (tmp[rr][cc]===opp) {
+        if (countAround(tmp,rr,cc,player) > countAround(tmp,rr,cc,opp))
+          wave.push([rr,cc]);
+      }
+    }
+    if (wave.length) {
+      wave.forEach(([fr,fc])=>{ tmp[fr][fc]=player; });
+      waves.push(wave);
+      go = cascadeOn;
+    }
+  }
+
+  const DOT_TIME   = 400;
+  const FLIP_GAP   = N <= 10 ? 150 : 80;
+  const WAVE_PAUSE = 250;
+  let t = 0;
+
+  waves.forEach((wave) => {
+    setTimeout(()=>{
+      wave.forEach(([fr,fc])=>{
+        const cell = getCell(fr,fc);
+        cell.classList.remove('threatened');
+        cell.classList.add('vulnerable');
+      });
+    }, t);
+    t += DOT_TIME;
+
+    wave.forEach(([fr,fc], i)=>{
+      setTimeout(()=>{
+        board[fr][fc] = player;
+        const cell = getCell(fr,fc);
+        cell.classList.remove('vulnerable');
+        updateCellVisual(fr, fc, true);
+        updateThreats();
+        updateInfo();
+      }, t + i * FLIP_GAP);
+    });
+    t += wave.length * FLIP_GAP + WAVE_PAUSE;
+  });
+
+  return t;
+}
+
+function onCellClick(r,c) {
+  if (gameOver || aiThinking || currentPlayer!==1 || board[r][c]!==0) return;
+  const legal = getLegalCells(board, 1);
+  if (!legal.some(([lr,lc]) => lr===r && lc===c)) return;
+
+  lockBoard(true);
+  const animTime = applyMove(r,c,1);
+
+  setTimeout(() => {
+    currentPlayer = 2;
+    updateInfo();
+    if (checkEnd()) { lockBoard(false); return; }
+    aiThinking = true;
+    updateInfo();
+    const delay = Math.max(300, 50 * N);
+    setTimeout(()=>{ aiMove(); }, delay);
+  }, animTime);
+}
+
+function lockBoard(lock) {
+  document.querySelectorAll('.cell').forEach(c => {
+    if (lock) c.classList.add('locked'); else c.classList.remove('locked');
+  });
+}
+
+function updateCellVisual(r,c,animate) {
+  const cell = getCell(r,c);
+  const cls = board[r][c]===1?' p1':board[r][c]===2?' p2':'';
+  cell.className = 'cell' + cls;
+  if (animate) { cell.classList.add('flip'); setTimeout(()=>cell.classList.remove('flip'),350); }
+}
+
+function updateThreats() {
+  for (let r=0; r<N; r++) for (let c=0; c<N; c++) {
+    const cell = getCell(r,c);
+    if (!cell) continue;
+    const player = board[r][c];
+    if (player === 0) { cell.classList.remove('threatened'); continue; }
+    const opp = player===1?2:1;
+    const fn = countAround(board, r, c, player);
+    const en = countAround(board, r, c, opp);
+    const hasEmpty = neighbors(r,c).some(([rr,cc]) => board[rr][cc] === 0);
+    const threatened = (fn - en < 1) && hasEmpty;
+    cell.classList.toggle('threatened', threatened);
+  }
+}
+
+function updateInfo() {
+  let s1=0, s2=0;
+  board.forEach(row=>row.forEach(v=>{ if(v===1)s1++; if(v===2)s2++; }));
+  document.getElementById('score1').textContent = s1;
+  document.getElementById('score2').textContent = s2;
+  const label = document.getElementById('turnLabel');
+  if (aiThinking) {
+    label.className = 'turn-label p2 thinking';
+    label.textContent = 'ИИ думает...';
+  } else {
+    label.className = 'turn-label ' + (currentPlayer===1?'p1':'p2');
+    label.textContent = currentPlayer===1 ? 'Ваш ход' : 'Ход ИИ';
+  }
+}
+
+function checkEnd() {
+  let s1=0, s2=0, empty=0;
+  board.forEach(row=>row.forEach(v=>{ if(v===1)s1++; if(v===2)s2++; if(v===0)empty++; }));
+
+  const totalPlaced = s1 + s2;
+  let ended = false;
+
+  if (totalPlaced >= 2 && (s1 === 0 || s2 === 0)) ended = true;
+  if (empty === 0) ended = true;
+
+  if (ended) {
+    gameOver = true;
+    const overlay = document.getElementById('winner-overlay');
+    const txt = document.getElementById('winnerText');
+    if (s1 > s2) { txt.textContent = '🔵 Вы победили! '+s1+' — '+s2; txt.style.color='#4fc3f7'; }
+    else if (s2 > s1) { txt.textContent = '🔴 ИИ победил! '+s2+' — '+s1; txt.style.color='#ef5350'; }
+    else { txt.textContent = '🤝 Ничья! '+s1+' — '+s2; txt.style.color='#e0e0ff'; }
+    overlay.classList.add('show');
+    return true;
+  }
+  return false;
+}
+
+</script>
+<script src="/static/ai.js"></script>
+<script>
+initGame();
+</script>
+</body>
+</html>

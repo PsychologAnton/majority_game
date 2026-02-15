@@ -19,12 +19,12 @@
         <button id="btnLeave" class="danger">Leave</button>
       </div>
       <div id="err" class="error" hidden></div>
-      <p class="hint">Если вы закроете вкладку, через ~35 секунд вы будете удалены из лобби.</p>
+      <p class="hint">Игроки должны оставаться на странице лобби. Таймаут: 120 секунд.</p>
     </section>
 
     <section class="panel">
       <h2>Как подключиться другу</h2>
-      <p class="hint">Отправьте код лобби и IP адрес хоста (ПК, где запущен сервер), например: <code>http://192.168.0.10:5000</code>.</p>
+      <p class="hint">Отправьте код лобби <b>{{ code }}</b> и IP адрес хоста (ПК, где запущен сервер), например: <code>http://192.168.0.10:5000</code>.</p>
     </section>
   </main>
 
@@ -33,6 +33,7 @@ function qs(id){ return document.getElementById(id); }
 
 const code = qs('code').textContent.trim();
 const playerId = localStorage.getItem('mg_player_id') || '';
+let lastErrorCount = 0;
 
 async function api(path, opts){
   const res = await fetch(path, Object.assign({
@@ -44,16 +45,23 @@ async function api(path, opts){
 
 function showError(msg){
   const el = qs('err');
+  if (msg) {
+    console.error('Ошибка лобби:', msg);
+  }
   el.textContent = msg;
   el.hidden = !msg;
 }
 
 function render(state){
   if(!state.ok){
-    showError(state.error || 'Ошибка');
+    lastErrorCount++;
+    if (lastErrorCount > 3) {
+      showError((state.error || 'Ошибка') + '. Лобби больше не существует или было удалено.');
+    }
     return;
   }
-
+  
+  lastErrorCount = 0;
   const isHost = (state.players || []).some(p => p.player_id === playerId && p.is_host);
 
   qs('meta').textContent = `Формат: ${state.format} · Игроки: ${state.players_count}/${state.max_players} · Host: ${state.host_nick || '?'}`;

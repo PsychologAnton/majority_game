@@ -116,25 +116,31 @@ class GameEngine:
         p_num = self.current_player_num
         self.board[r][c] = p_num
         
-        # Capture logic with cascade
+        # Каскадная логика захвата
+        # ВАЖНО: Проверяем только вражеские клетки!
         processed_flips = []
         check_queue = [(r, c)]
         
         while check_queue:
             curr_r, curr_c = check_queue.pop(0)
             
-            # Neighbors of current cell
+            # Проверяем соседей текущей клетки
             for nr, nc in self._neighbors(curr_r, curr_c):
                 target_val = self.board[nr][nc]
-                if target_val != 0 and target_val != p_num:
-                    # It's an enemy
-                    # Check majority condition for (nr, nc)
-                    if self._should_capture(nr, nc, p_num, target_val):
-                        # Flip!
-                        self.board[nr][nc] = p_num
-                        processed_flips.append((nr, nc))
-                        if self.cascade_enabled:
-                            check_queue.append((nr, nc))
+                
+                # Пропускаем пустые и свои клетки
+                if target_val == 0 or target_val == p_num:
+                    continue
+                
+                # Это вражеская клетка - проверяем условие захвата
+                if self._should_capture(nr, nc, p_num, target_val):
+                    # Захватываем!
+                    self.board[nr][nc] = p_num
+                    processed_flips.append((nr, nc))
+                    
+                    # Если каскад включён, добавляем в очередь
+                    if self.cascade_enabled:
+                        check_queue.append((nr, nc))
                             
         self.history.append({
             "player": player_id,

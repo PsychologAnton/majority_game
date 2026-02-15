@@ -3,54 +3,142 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Majority LAN — Lobby</title>
+  <title>Majority LAN — Главное меню</title>
   <link rel="stylesheet" href="/static/app.css" />
+  <style>
+    body {
+      background: #1a1a2e;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      color: #eee;
+      padding: 20px;
+    }
+    .container {
+      max-width: 800px;
+      width: 100%;
+    }
+    h1 {
+      font-size: 2.5rem;
+      text-align: center;
+      margin-bottom: 10px;
+      color: #e0e0ff;
+      letter-spacing: 3px;
+    }
+    .subtitle {
+      text-align: center;
+      color: #8888aa;
+      margin-bottom: 40px;
+      font-size: 1.1rem;
+    }
+    .mode-selector {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 40px;
+    }
+    .mode-card {
+      background: #16213e;
+      padding: 30px;
+      border-radius: 12px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s;
+      border: 2px solid transparent;
+    }
+    .mode-card:hover {
+      background: #1a4a7a;
+      transform: translateY(-5px);
+      border-color: #4fc3f7;
+      box-shadow: 0 10px 30px rgba(79, 195, 247, 0.3);
+    }
+    .mode-card h2 {
+      font-size: 1.8rem;
+      margin-bottom: 15px;
+      color: #4fc3f7;
+    }
+    .mode-card p {
+      color: #aaa;
+      line-height: 1.6;
+    }
+    .mode-card .icon {
+      font-size: 3rem;
+      margin-bottom: 15px;
+    }
+  </style>
 </head>
 <body>
-  <main class="card">
-    <h1>Majority — LAN</h1>
+  <div class="container">
+    <h1>⚡ MAJORITY</h1>
+    <p class="subtitle">Абстрактная стратегия с каскадными захватами</p>
 
-    <section class="panel">
-      <h2>Создать лобби</h2>
-      <label class="row">
-        <span>Ник:</span>
-        <input id="nickCreate" maxlength="18" placeholder="например Anton" />
-      </label>
-      <label class="row">
-        <span>Формат:</span>
-        <select id="format">
-          {% for f in formats %}
-          <option value="{{ f }}">{{ f }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <button id="btnCreate">Создать и ждать</button>
-      <p class="hint">Лимит — до 5 игроков в лобби.</p>
-    </section>
+    <div class="mode-selector">
+      <div class="mode-card" onclick="location.href='/singleplayer'">
+        <div class="icon">🤖</div>
+        <h2>Одиночная игра</h2>
+        <p>Играйте против ИИ с 3 уровнями сложности. Выберите размер поля от 6×6 до 16×16.</p>
+      </div>
 
-    <section class="panel">
-      <h2>Присоединиться</h2>
-      <label class="row">
-        <span>Ник:</span>
-        <input id="nickJoin" maxlength="18" placeholder="например Player2" />
-      </label>
-      <label class="row">
-        <span>Код лобби:</span>
-        <input id="codeJoin" maxlength="10" placeholder="например A1B2C3" />
-      </label>
-      <button id="btnJoin">Войти</button>
-      <div id="joinError" class="error" hidden></div>
-    </section>
+      <div class="mode-card" onclick="showMultiplayerPanel()">
+        <div class="icon">👥</div>
+        <h2>Мультиплеер LAN</h2>
+        <p>Сыграйте с друзьями в локальной сети. До 5 игроков одновременно.</p>
+      </div>
+    </div>
 
-    <section class="panel">
-      <h2>Открытые лобби</h2>
-      <div id="lobbies" class="list"></div>
-      <p class="hint">Список обновляется автоматически.</p>
-    </section>
-  </main>
+    <div id="multiplayerPanel" style="display: none;">
+      <main class="card">
+        <section class="panel">
+          <h2>Создать лобби</h2>
+          <label class="row">
+            <span>Ник:</span>
+            <input id="nickCreate" maxlength="18" placeholder="например Anton" />
+          </label>
+          <label class="row">
+            <span>Формат:</span>
+            <select id="format">
+              {% for f in formats %}
+              <option value="{{ f }}">{{ f }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <button id="btnCreate">Создать и ждать</button>
+          <p class="hint">Лимит — до 5 игроков в лобби.</p>
+        </section>
+
+        <section class="panel">
+          <h2>Присоединиться</h2>
+          <label class="row">
+            <span>Ник:</span>
+            <input id="nickJoin" maxlength="18" placeholder="например Player2" />
+          </label>
+          <label class="row">
+            <span>Код лобби:</span>
+            <input id="codeJoin" maxlength="10" placeholder="например A1B2C3" />
+          </label>
+          <button id="btnJoin">Войти</button>
+          <div id="joinError" class="error" hidden></div>
+        </section>
+
+        <section class="panel">
+          <h2>Открытые лобби</h2>
+          <div id="lobbies" class="list"></div>
+          <p class="hint">Список обновляется автоматически.</p>
+        </section>
+      </main>
+    </div>
+  </div>
 
 <script>
 function qs(id){ return document.getElementById(id); }
+
+function showMultiplayerPanel() {
+  document.getElementById('multiplayerPanel').style.display = 'block';
+  refreshLobbies();
+  setInterval(refreshLobbies, 2000);
+}
 
 function saveSession(code, playerId){
   localStorage.setItem('mg_code', code);
@@ -90,6 +178,8 @@ async function joinLobby(code){
 
 async function refreshLobbies(){
   const box = qs('lobbies');
+  if (!box) return;
+  
   const r = await api('/api/lobbies');
   if(!r.ok){ box.innerHTML = '<div class="hint">Не удалось получить список лобби</div>'; return; }
 
@@ -116,11 +206,11 @@ async function refreshLobbies(){
   });
 }
 
-qs('btnCreate').addEventListener('click', createLobby);
-qs('btnJoin').addEventListener('click', () => joinLobby(qs('codeJoin').value.trim().toUpperCase()));
+const btnCreate = qs('btnCreate');
+const btnJoin = qs('btnJoin');
 
-refreshLobbies();
-setInterval(refreshLobbies, 2000);
+if (btnCreate) btnCreate.addEventListener('click', createLobby);
+if (btnJoin) btnJoin.addEventListener('click', () => joinLobby(qs('codeJoin').value.trim().toUpperCase()));
 </script>
 </body>
 </html>

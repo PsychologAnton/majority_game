@@ -6,58 +6,209 @@
   <title>Majority LAN — Игра</title>
   <link rel="stylesheet" href="/static/app.css" />
   <style>
-    body { background: #0b0e14; display: block; padding: 20px; text-align: center; }
-    .game-container { max-width: 1000px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      background: #1a1a2e; 
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      color: #eee;
+      user-select: none;
+      padding: 20px;
+    }
+    
+    .game-container { 
+      max-width: 1200px; 
+      margin: 0 auto; 
+      display: flex; 
+      flex-wrap: wrap; 
+      gap: 30px; 
+      justify-content: center;
+      align-items: flex-start;
+    }
     
     #board {
       display: grid; 
-      gap: 2px; 
-      padding: 8px;
-      background: #1f2937;
-      border-radius: 8px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      gap: 3px; 
+      padding: 12px;
+      background: #16213e;
+      border-radius: 12px;
+      box-shadow: 0 0 40px #0d1117aa;
     }
+    
     .cell {
-      background: #111827;
-      border-radius: 4px;
+      background: #0f3460;
+      border-radius: 6px;
       cursor: pointer;
+      transition: background 0.25s, transform 0.2s, box-shadow 0.3s;
       position: relative;
-      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
-    .cell:hover { background: #1f2937; }
+    
+    .cell:hover:not(.p1):not(.p2):not(.p3):not(.p4):not(.p5) { 
+      background: #1a4a7a; 
+      transform: scale(1.08); 
+    }
     
     /* Player Colors (1..5) */
-    .cell.p1 { background: #3b82f6; box-shadow: 0 0 8px #3b82f6aa; }
-    .cell.p2 { background: #ef4444; box-shadow: 0 0 8px #ef4444aa; }
-    .cell.p3 { background: #10b981; box-shadow: 0 0 8px #10b981aa; }
-    .cell.p4 { background: #f59e0b; box-shadow: 0 0 8px #f59e0baa; }
-    .cell.p5 { background: #8b5cf6; box-shadow: 0 0 8px #8b5cf6aa; }
+    .cell.p1 { background: #4fc3f7; box-shadow: 0 0 12px #4fc3f766; cursor: default; }
+    .cell.p2 { background: #ef5350; box-shadow: 0 0 12px #ef535066; cursor: default; }
+    .cell.p3 { background: #10b981; box-shadow: 0 0 12px #10b98166; cursor: default; }
+    .cell.p4 { background: #f59e0b; box-shadow: 0 0 12px #f59e0b66; cursor: default; }
+    .cell.p5 { background: #8b5cf6; box-shadow: 0 0 12px #8b5cf666; cursor: default; }
 
-    .sidebar { min-width: 250px; text-align: left; }
-    .player-card {
-      padding: 10px; margin-bottom: 8px;
-      background: #1f2937; border-radius: 8px; border: 1px solid #374151;
-      display: flex; justify-content: space-between; align-items: center;
-      transition: 0.3s;
+    /* Threat indicator: glowing "!" */
+    .cell.threatened::after {
+      content: '!';
+      position: absolute;
+      font-size: 20px;
+      font-weight: 900;
+      color: white;
+      text-shadow: 0 0 6px rgba(255,255,255,0.9), 0 0 12px rgba(255,255,255,0.4);
+      pointer-events: none;
+      line-height: 1;
     }
-    .player-card.active { border-color: #e0e7ff; background: #2d3748; transform: scale(1.02); }
-    .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 8px; }
-    .dot.p1 { background: #3b82f6; }
-    .dot.p2 { background: #ef4444; }
-    .dot.p3 { background: #10b981; }
-    .dot.p4 { background: #f59e0b; }
-    .dot.p5 { background: #8b5cf6; }
+
+    /* Capture-preview dot */
+    .cell.vulnerable::after {
+      content: ''; 
+      position: absolute; 
+      width: 14px; 
+      height: 14px;
+      border-radius: 50%; 
+      background: white;
+      box-shadow: 0 0 6px rgba(255,255,255,0.8);
+      animation: dotPulse 0.3s infinite alternate;
+    }
     
-    .status { font-size: 1.2rem; margin-bottom: 10px; font-weight: bold; color: #e0e7ff; }
-    .my-turn { color: #4ade80; }
+    @keyframes dotPulse {
+      from { transform: scale(0.7); opacity: 0.6; }
+      to   { transform: scale(1.1); opacity: 1; }
+    }
+
+    .cell.flip { animation: flipCell 0.35s ease; }
+    @keyframes flipCell {
+      0%   { transform: scale(1); }
+      50%  { transform: scale(0.3) rotate(180deg); }
+      100% { transform: scale(1) rotate(360deg); }
+    }
+    
+    .cell.locked { pointer-events: none; }
+
+    .sidebar { 
+      min-width: 280px; 
+      text-align: left;
+      background: #16213e;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 0 20px #0d1117aa;
+    }
+    
+    .player-card {
+      padding: 12px; 
+      margin-bottom: 10px;
+      background: #0f3460; 
+      border-radius: 8px; 
+      border: 2px solid #1a4a7a;
+      display: flex; 
+      justify-content: space-between; 
+      align-items: center;
+      transition: all 0.3s;
+    }
+    
+    .player-card.active { 
+      border-color: #4fc3f7; 
+      background: #1a4a7a; 
+      transform: scale(1.03);
+      box-shadow: 0 0 12px #4fc3f766;
+    }
+    
+    .dot { 
+      width: 18px; 
+      height: 18px; 
+      border-radius: 50%; 
+      display: inline-block; 
+      margin-right: 10px;
+    }
+    
+    .dot.p1 { background: #4fc3f7; box-shadow: 0 0 8px #4fc3f7aa; }
+    .dot.p2 { background: #ef5350; box-shadow: 0 0 8px #ef5350aa; }
+    .dot.p3 { background: #10b981; box-shadow: 0 0 8px #10b981aa; }
+    .dot.p4 { background: #f59e0b; box-shadow: 0 0 8px #f59e0baa; }
+    .dot.p5 { background: #8b5cf6; box-shadow: 0 0 8px #8b5cf6aa; }
+    
+    .status { 
+      font-size: 1.3rem; 
+      margin-bottom: 20px; 
+      font-weight: bold; 
+      color: #e0e0ff;
+      text-align: center;
+      padding: 12px;
+      background: #0f3460;
+      border-radius: 8px;
+      letter-spacing: 1px;
+    }
+    
+    .my-turn { 
+      color: #4fc3f7; 
+      animation: pulse 0.8s infinite alternate;
+    }
+    
+    @keyframes pulse { 
+      from { opacity: 0.7; } 
+      to { opacity: 1; } 
+    }
+    
+    .btn {
+      padding: 10px 24px;
+      border: 2px solid #e0e0ff44;
+      background: transparent;
+      color: #e0e0ff;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.95rem;
+      transition: all 0.2s;
+      width: 100%;
+      margin-top: 12px;
+    }
+    
+    .btn:hover {
+      background: #e0e0ff15;
+      border-color: #e0e0ffaa;
+    }
     
     #winner-overlay {
-        position: fixed; inset: 0; background: rgba(0,0,0,0.85);
-        display: none; flex-direction: column; align-items: center; justify-content: center;
-        z-index: 100;
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(10,10,30,0.88);
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      z-index: 100;
     }
+    
     #winner-overlay.show { display: flex; }
-    #winner-overlay h2 { font-size: 3rem; color: #fff; text-shadow: 0 0 20px #fff; }
+    #winner-overlay h2 { 
+      font-size: 2.5rem; 
+      margin-bottom: 20px; 
+      color: #e0e0ff;
+      text-shadow: 0 0 20px rgba(224, 224, 255, 0.5);
+    }
+    
+    #winner-overlay .btn { 
+      font-size: 1.1rem; 
+      padding: 14px 40px;
+      width: auto;
+    }
   </style>
 </head>
 <body>
@@ -70,13 +221,13 @@
   <div class="sidebar">
     <div id="status" class="status">Загрузка...</div>
     <div id="players-list"></div>
-    <button onclick="location.href='/'" style="margin-top:20px;">Выход в меню</button>
+    <button class="btn" onclick="location.href='/'">Выход в меню</button>
   </div>
 </div>
 
 <div id="winner-overlay">
   <h2 id="winner-text"></h2>
-  <button onclick="location.href='/'" class="primary" style="font-size:1.2rem; padding:15px 30px;">В меню</button>
+  <button class="btn" onclick="location.href='/'">Играть снова</button>
 </div>
 
 <script>
@@ -84,24 +235,97 @@ const code = document.getElementById('code').textContent.trim();
 const myId = localStorage.getItem('mg_player_id');
 let boardSize = 8;
 let lastTurnIdx = -1;
+let currentBoard = [];
+let playersInfo = [];
 
 async function api(path, body){
-    const opts = body ? { method:'POST', body: JSON.stringify(body), headers: {'Content-Type':'application/json'} } : {};
+    const opts = body ? { 
+      method:'POST', 
+      body: JSON.stringify(body), 
+      headers: {'Content-Type':'application/json'} 
+    } : {};
     return fetch(path, opts).then(r=>r.json());
 }
 
+function cellSize(size) { 
+  return size <= 10 ? 56 : 32; 
+}
+
+function getCell(r, c) {
+  const el = document.getElementById('board');
+  if (!el) return null;
+  return el.querySelector(`.cell[data-r="${r}"][data-c="${c}"]`);
+}
+
+function neighbors(r, c, size) {
+  const dirs = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+  return dirs.map(([dr,dc])=>[r+dr,c+dc])
+    .filter(([rr,cc])=>rr>=0&&rr<size&&cc>=0&&cc<size);
+}
+
+function countAround(board, r, c, playerNum) {
+  return neighbors(r, c, board.length)
+    .filter(([rr,cc])=>board[rr][cc]===playerNum)
+    .length;
+}
+
+function updateThreats() {
+  if (!currentBoard || currentBoard.length === 0) return;
+  
+  const N = currentBoard.length;
+  
+  for (let r = 0; r < N; r++) {
+    for (let c = 0; c < N; c++) {
+      const cell = getCell(r, c);
+      if (!cell) continue;
+      
+      const player = currentBoard[r][c];
+      if (player === 0) {
+        cell.classList.remove('threatened');
+        continue;
+      }
+      
+      // Check if this cell is under threat
+      const fn = countAround(currentBoard, r, c, player);
+      
+      // Count all enemy neighbors (any player that's not this one)
+      let maxEnemyCount = 0;
+      for (let p = 1; p <= 5; p++) {
+        if (p !== player) {
+          const en = countAround(currentBoard, r, c, p);
+          maxEnemyCount = Math.max(maxEnemyCount, en);
+        }
+      }
+      
+      // Check if there's at least one empty neighbor
+      const hasEmpty = neighbors(r, c, N)
+        .some(([rr,cc]) => currentBoard[rr][cc] === 0);
+      
+      const threatened = (fn - maxEnemyCount < 1) && hasEmpty;
+      cell.classList.toggle('threatened', threatened);
+    }
+  }
+}
+
 function renderBoard(grid, size) {
+    currentBoard = grid;
     const el = document.getElementById('board');
+    const sz = cellSize(size);
+    
+    // Only rebuild if size changed
     if(el.children.length !== size*size) {
         el.innerHTML = '';
-        el.style.gridTemplateColumns = `repeat(${size}, 1fr)`;
-        const px = Math.min(60, 600/size);
+        el.style.gridTemplateColumns = `repeat(${size}, ${sz}px)`;
+        el.style.gap = size <= 10 ? '3px' : '2px';
+        el.style.padding = size <= 10 ? '12px' : '8px';
+        
         for(let r=0; r<size; r++){
             for(let c=0; c<size; c++){
                 const d = document.createElement('div');
                 d.className = 'cell';
-                d.style.width = px+'px';
-                d.style.height = px+'px';
+                d.style.width = sz+'px';
+                d.style.height = sz+'px';
+                if (sz <= 32) d.style.fontSize = '14px';
                 d.onclick = () => onCellClick(r,c);
                 d.dataset.r = r;
                 d.dataset.c = c;
@@ -110,25 +334,51 @@ function renderBoard(grid, size) {
         }
     }
     
+    // Update cell states
     for(let r=0; r<size; r++){
         for(let c=0; c<size; c++){
             const val = grid[r][c];
             const cell = el.children[r*size + c];
-            cell.className = 'cell' + (val > 0 ? ' p'+val : '');
+            const oldClass = cell.className;
+            const newClass = 'cell' + (val > 0 ? ' p'+val : '');
+            
+            // Add flip animation if cell changed from one player to another
+            if (val > 0 && oldClass.includes('p') && !oldClass.includes('p'+val)) {
+              cell.classList.add('flip');
+              setTimeout(() => cell.classList.remove('flip'), 350);
+            }
+            
+            cell.className = newClass;
         }
     }
+    
+    // Update threat indicators
+    updateThreats();
 }
 
 async function onCellClick(r, c) {
     const res = await api(`/api/game/${code}/move`, {player_id: myId, r, c});
     if(res.ok) {
-        refresh(); // Instant refresh
+        // Lock board during animation
+        document.querySelectorAll('.cell').forEach(cell => {
+          cell.classList.add('locked');
+        });
+        
+        // Quick refresh
+        setTimeout(() => {
+          refresh().then(() => {
+            document.querySelectorAll('.cell').forEach(cell => {
+              cell.classList.remove('locked');
+            });
+          });
+        }, 100);
     } else {
-        console.log(res.error);
+        console.log('Move error:', res.error);
     }
 }
 
 function renderPlayers(info, scores, currentId, winner) {
+    playersInfo = info;
     const box = document.getElementById('players-list');
     box.innerHTML = info.map((p, i) => {
         const pNum = i + 1;
@@ -141,7 +391,7 @@ function renderPlayers(info, scores, currentId, winner) {
                     <span class="dot p${pNum}"></span>
                     <b>${p.nick}</b> ${isMe ? '(Вы)' : ''}
                 </div>
-                <div style="font-size:1.2em; font-weight:bold">${score}</div>
+                <div style="font-size:1.3em; font-weight:bold">${score}</div>
             </div>
         `;
     }).join('');
@@ -149,13 +399,28 @@ function renderPlayers(info, scores, currentId, winner) {
     const status = document.getElementById('status');
     if(winner) {
         status.textContent = "Игра окончена!";
+        status.className = "status";
+        
         const wInfo = info.find(x=>x.id === winner);
-        const wText = wInfo ? wInfo.nick + " победил!" : "Ничья!";
+        let wText = '';
+        
+        if (winner === 'draw') {
+          wText = '🤝 Ничья!';
+        } else if (wInfo) {
+          const wNum = info.indexOf(wInfo) + 1;
+          const colors = ['🔵', '🔴', '🟢', '🟡', '🟣'];
+          const emoji = colors[wNum - 1] || '⭐';
+          const score = scores[winner] || 0;
+          wText = `${emoji} ${wInfo.nick} победил! (${score} клеток)`;
+        } else {
+          wText = '🎮 Игра окончена!';
+        }
+        
         document.getElementById('winner-text').textContent = wText;
         document.getElementById('winner-overlay').classList.add('show');
     } else {
         if(currentId === myId) {
-            status.textContent = "ВАШ ХОД";
+            status.textContent = "⚡ ВАШ ХОД";
             status.className = "status my-turn";
         } else {
             const cur = info.find(x=>x.id === currentId);
@@ -166,11 +431,19 @@ function renderPlayers(info, scores, currentId, winner) {
 }
 
 async function refresh() {
-    const data = await api(`/api/game/${code}?player_id=${myId}`);
-    if(data.error) return; // maybe redirect
+    try {
+        const data = await api(`/api/game/${code}?player_id=${myId}`);
+        if(data.error) {
+          console.error('Game error:', data.error);
+          return;
+        }
 
-    renderBoard(data.board, data.size);
-    renderPlayers(data.players_info, data.scores, data.current_player_id, data.winner);
+        boardSize = data.size;
+        renderBoard(data.board, data.size);
+        renderPlayers(data.players_info, data.scores, data.current_player_id, data.winner);
+    } catch (e) {
+        console.error('Refresh error:', e);
+    }
 }
 
 setInterval(refresh, 1000);

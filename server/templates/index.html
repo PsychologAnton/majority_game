@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Majority LAN — Lobby</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <main class="card">
+    <h1>Majority — LAN</h1>
+
+    <section class="panel">
+      <h2>Создать лобби</h2>
+      <label class="row">
+        <span>Ник:</span>
+        <input id="nickCreate" maxlength="18" placeholder="например Anton" />
+      </label>
+      <label class="row">
+        <span>Формат:</span>
+        <select id="format">
+          {% for f in formats %}
+          <option value="{{ f }}">{{ f }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button id="btnCreate">Создать и ждать</button>
+      <p class="hint">Лимит — до 5 игроков в лобби.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Присоединиться</h2>
+      <label class="row">
+        <span>Ник:</span>
+        <input id="nickJoin" maxlength="18" placeholder="например Player2" />
+      </label>
+      <label class="row">
+        <span>Код лобби:</span>
+        <input id="codeJoin" maxlength="10" placeholder="например A1B2C3" />
+      </label>
+      <button id="btnJoin">Войти</button>
+      <div id="joinError" class="error" hidden></div>
+    </section>
+
+    <section class="panel">
+      <h2>Открытые лобби</h2>
+      <div id="lobbies" class="list"></div>
+      <p class="hint">Список обновляется автоматически.</p>
+    </section>
+  </main>
+
+<script>
+function qs(id){ return document.getElementById(id); }
+
+function saveSession(code, playerId){
+  localStorage.setItem('mg_code', code);
+  localStorage.setItem('mg_player_id', playerId);
+}
+
+async function api(path, opts){
+  const res = await fetch(path, Object.assign({
+    headers: { 'Content-Type': 'application/json' }
+  }, opts || {}));
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
+async function createLobby(){
+  const nick = qs('nickCreate').value.trim();
+  const format = qs('format').value;
+  const r = await api('/api/lobbies', { method:'POST', body: JSON.stringify({ nick, format }) });
+  if(!r.ok){ alert(r.data.error || 'Ошибка'); return; }
+  saveSession(r.data.code, r.data.player_id);
+  location.href = '/lobby/' + encodeURIComponent(r.data.code);
+}
+
+async function joinLobby(code){
+  const nick = qs('nickJoin').value.trim();
+  const joinError = qs('joinError');
+  joinError.hidden = true;
+  const r = await api('/api/lobbies/' + encodeURIComponent(code) + '/join', { method:'POST', body: JSON.stringify({ nick }) });
+  if(!r.ok || r.data.ok === false){
+    joinError.textContent = (r.data && r.data.error) ? r.data.error : 'Ошибка входа';
+    joinError.hidden = false;
+    return;
+  }
+  saveSession(r.data.code, r.data.player_id);
+  location.href = '/lobby/' + encodeURIComponent(r.data.code);
+}
+
+async function refreshLobbies(){
+  const box = qs('lobbies');
+  const r = await api('/api/lobbies');
+  if(!r.ok){ box.innerHTML = '<div class="hint">Не удалось получить список лобби</div>'; return; }
+
+  const items = r.data;
+  if(!items.length){ box.innerHTML = '<div class="hint">Пока нет открытых лобби</div>'; return; }
+
+  box.innerHTML = items.map(l => {
+    return `
+      <div class="item">
+        <div class="grow">
+          <div class="code">${l.code}</div>
+          <div class="meta">Формат: ${l.format} · Игроки: ${l.players}/${l.max_players}</div>
+        </div>
+        <button data-code="${l.code}">Join</button>
+      </div>
+    `;
+  }).join('');
+
+  box.querySelectorAll('button[data-code]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      qs('codeJoin').value = btn.dataset.code;
+      joinLobby(btn.dataset.code);
+    });
+  });
+}
+
+qs('btnCreate').addEventListener('click', createLobby);
+qs('btnJoin').addEventListener('click', () => joinLobby(qs('codeJoin').value.trim().toUpperCase()));
+
+refreshLobbies();
+setInterval(refreshLobbies, 2000);
+</script>
+</body>
+</html>

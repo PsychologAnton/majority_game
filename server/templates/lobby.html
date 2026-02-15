@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Лобби {{ code }}</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <main class="card">
+    <h1>Лобби <span id="code">{{ code }}</span></h1>
+
+    <section class="panel">
+      <div class="meta" id="meta">Загрузка...</div>
+      <div class="list" id="players"></div>
+      <div class="actions">
+        <button id="btnStart" class="primary" disabled>Start</button>
+        <button id="btnGame" disabled>Open game</button>
+        <button id="btnLeave" class="danger">Leave</button>
+      </div>
+      <div id="err" class="error" hidden></div>
+      <p class="hint">Если вы закроете вкладку, через ~35 секунд вы будете удалены из лобби.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Как подключиться другу</h2>
+      <p class="hint">Отправьте код лобби и IP адрес хоста (ПК, где запущен сервер), например: <code>http://192.168.0.10:5000</code>.</p>
+    </section>
+  </main>
+
+<script>
+function qs(id){ return document.getElementById(id); }
+
+const code = qs('code').textContent.trim();
+const playerId = localStorage.getItem('mg_player_id') || '';
+
+async function api(path, opts){
+  const res = await fetch(path, Object.assign({
+    headers: { 'Content-Type': 'application/json' }
+  }, opts || {}));
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
+function showError(msg){
+  const el = qs('err');
+  el.textContent = msg;
+  el.hidden = !msg;
+}
+
+function render(state){
+  if(!state.ok){
+    showError(state.error || 'Ошибка');
+    return;
+  }
+
+  const isHost = (state.players || []).some(p => p.player_id === playerId && p.is_host);
+
+  qs('meta').textContent = `Формат: ${state.format} · Игроки: ${state.players_count}/${state.max_players} · Host: ${state.host_nick || '?'}`;
+
+  const list = qs('players');
+  list.innerHTML = (state.players || []).map(p => {
+    const role = p.is_host ? ' (host)' : '';
+    const me = p.player_id === playerId ? ' · you' : '';
+    return `<div class="item"><div class="grow"><div class="code">${escapeHtml(p.nick)}${role}${me}</div></div></div>`;
+  }).join('');
+
+  qs('btnStart').disabled = !isHost || state.started;
+  qs('btnGame').disabled = !state.started;
+}
+
+function escapeHtml(s){
+  return (s || '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+}
+
+async function refresh(){
+  const url = '/api/lobbies/' + encodeURIComponent(code) + (playerId ? ('?player_id=' + encodeURIComponent(playerId)) : '');
+  const r = await api(url);
+  if(!r.ok){
+    showError(r.data.error || 'Лобби не найдено');
+    return;
+  }
+  showError('');
+  render(r.data);
+}
+
+async function start(){
+  const r = await api('/api/lobbies/' + encodeURIComponent(code) + '/start', { method:'POST', body: JSON.stringify({ player_id: playerId }) });
+  if(!r.ok || r.data.ok === false){ showError(r.data.error || 'Ошибка'); return; }
+  await refresh();
+}
+
+async function leave(){
+  await api('/api/lobbies/' + encodeURIComponent(code) + '/leave', { method:'POST', body: JSON.stringify({ player_id: playerId }) });
+  localStorage.removeItem('mg_player_id');
+  localStorage.removeItem('mg_code');
+  location.href = '/';
+}
+
+function openGame(){
+  location.href = '/game/' + encodeURIComponent(code);
+}
+
+qs('btnStart').addEventListener('click', start);
+qs('btnLeave').addEventListener('click', leave);
+qs('btnGame').addEventListener('click', openGame);
+
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>

@@ -5,7 +5,7 @@ import threading
 import time
 from flask import Flask, jsonify, render_template, request, abort, send_from_directory
 
-from .lobby_store import LobbyStore
+from lobby_store import LobbyStore
 
 
 def create_app() -> Flask:

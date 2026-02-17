@@ -8,7 +8,7 @@ import threading
 import time
 import random
 
-from .game_engine import GameEngine
+from game_engine import GameEngine
 
 def _now() -> float:
     return time.time()

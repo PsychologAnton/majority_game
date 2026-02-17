@@ -10,4 +10,4 @@ if __name__ == "__main__":
     print("Нажмите Ctrl+C для остановки")
     print("="*60)
     
-    app.run(host="0.0.0.0", port=5555, debug=True)
+    app.run(host="0.0.0.0", port=5005, debug=True)

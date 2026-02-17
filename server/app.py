@@ -43,6 +43,15 @@ def create_app() -> Flask:
         # Multiplayer game client
         return render_template("game.html", code=code)
 
+    @app.get("/game/<code>/debug")
+    def game_debug_page(code: str):
+        """
+        Debug-local режим: полная эмуляция локалки одним игроком.
+        Использует ту же страницу game.html, но устанавливает флаг mg_debug_local=1
+        через инъекцию в JS через Jinja2-переменную.
+        """
+        return render_template("game.html", code=code, debug_local=True)
+
     # -------- API --------
 
     @app.get("/api/lobbies")
